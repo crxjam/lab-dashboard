@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Test-specific TAT & Disruption Model</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>Test-specific TAT & Disruption Model</h1>
+      <p class="subtitle">Upload a vertical extract, choose a test, and compare observed baseline TAT with disruption scenarios.</p>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="card controls">
+      <h2>1. Upload vertical extract</h2>
+      <p>This app expects the TrakCare vertical extract with one row per test entry. Routine modelling uses <strong>SA</strong> rows only and excludes <strong>SAM</strong>.</p>
+      <input type="file" id="csvFile" accept=".csv" />
+
+      <div class="notice danger">
+        <strong>SAM rows are excluded automatically.</strong><br>
+        This model is designed for routine baseline TAT, not downtime/offline registration episodes.
+      </div>
+
+      <h2>2. Filter</h2>
+      <label>Test / analyte</label>
+      <select id="testSelect"></select>
+
+      <label>Ward contains (optional)</label>
+      <input type="text" id="wardFilter" placeholder="e.g. Emergency" />
+
+      <label>Hospital contains (optional)</label>
+      <input type="text" id="hospitalFilter" placeholder="e.g. Groote Schuur" />
+
+      <button id="applyFilterBtn" class="secondary">Apply filter</button>
+
+      <h2>3. Current baseline setup</h2>
+      <p class="small-text">These do not change your observed baseline data. They define the current routine setup used for disruption modelling.</p>
+
+      <label>Baseline intake / registration staff <span id="baselineIntakeValue">2</span></label>
+      <input type="range" id="baselineIntakeStaff" min="1" max="8" step="1" value="2" />
+
+      <label>Baseline processing capacity units <span id="baselineProcessingValue">2</span></label>
+      <input type="range" id="baselineProcessingStaff" min="1" max="8" step="1" value="2" />
+
+      <label>Baseline authorisation staff <span id="baselineAuthValue">1</span></label>
+      <input type="range" id="baselineAuthStaff" min="1" max="5" step="1" value="1" />
+
+      <h2>4. Disruption scenario</h2>
+      <label>Volume multiplier <span id="volumeValue">1.0</span></label>
+      <input type="range" id="volumeMultiplier" min="0.5" max="2.0" step="0.1" value="1.0" />
+
+      <label>Extra transport / pre-analytical delay <span id="extraDelayValue">0 min</span></label>
+      <input type="range" id="extraDelay" min="0" max="180" step="5" value="0" />
+
+      <label>Scenario intake / registration staff <span id="intakeStaffValue">2</span></label>
+      <input type="range" id="intakeStaff" min="1" max="8" step="1" value="2" />
+
+      <label>Scenario processing capacity units <span id="processingStaffValue">2</span></label>
+      <input type="range" id="processingStaff" min="1" max="8" step="1" value="2" />
+
+      <label>Scenario authorisation staff <span id="authStaffValue">1</span></label>
+      <input type="range" id="authStaff" min="1" max="5" step="1" value="1" />
+
+      <label>Target total TAT <span id="targetTatValue">4 h 0 min</span></label>
+      <input type="range" id="targetTat" min="30" max="720" step="10" value="240" />
+
+      <button id="runBtn">Update model</button>
+    </section>
+
+    <section class="results">
+      <section class="metrics-grid">
+        <div class="metric card"><div class="label">Selected SA rows</div><div class="value" id="rowsMetric">-</div></div>
+        <div class="metric card"><div class="label">Unique SA episodes</div><div class="value" id="episodesMetric">-</div></div>
+        <div class="metric card"><div class="label">Observed median total TAT</div><div class="value" id="observedMedianMetric">-</div></div>
+        <div class="metric card"><div class="label">Observed 90th percentile TAT</div><div class="value" id="observedP90Metric">-</div></div>
+      </section>
+
+      <section class="metrics-grid">
+        <div class="metric card"><div class="label">Scenario median total TAT</div><div class="value" id="scenarioMedianMetric">-</div></div>
+        <div class="metric card"><div class="label">Scenario 90th percentile TAT</div><div class="value" id="scenarioP90Metric">-</div></div>
+        <div class="metric card"><div class="label">% within target TAT</div><div class="value" id="withinTargetMetric">-</div></div>
+        <div class="metric card"><div class="label">Main bottleneck under scenario</div><div class="value bottleneck" id="bottleneckMetric">-</div></div>
+      </section>
+
+      <section class="card compact-card">
+        <h2>Key comparison</h2>
+        <table id="summaryTable">
+          <thead>
+            <tr>
+              <th>Metric</th>
+              <th>Observed baseline</th>
+              <th>Scenario</th>
+              <th>Change</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+
+      <section class="card compact-card">
+        <h2>TAT cumulative distribution</h2>
+        <p class="chart-note">X-axis = total TAT in hours. Y-axis = cumulative % of results completed by that TAT. A scenario curve that shifts right means slower performance.</p>
+        <canvas id="cdfChart"></canvas>
+      </section>
+
+      <section class="two-col">
+        <section class="card compact-card">
+          <h2>Median stage contribution</h2>
+          <p class="chart-note">This breaks the median TAT into estimated stage components.</p>
+          <canvas id="stageChart"></canvas>
+        </section>
+
+        <section class="card compact-card">
+          <h2>Key metrics</h2>
+          <p class="chart-note">Quick comparison of the most useful operational outputs.</p>
+          <canvas id="metricChart"></canvas>
+        </section>
+      </section>
+
+      <section class="card compact-card">
+        <h2>Interpretation</h2>
+        <div id="interpretationBox" class="interpretation-box">Upload data to begin.</div>
+      </section>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
