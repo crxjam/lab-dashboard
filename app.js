@@ -3,26 +3,14 @@ let filteredRows = [];
 let wardChart = null;
 let ageChart = null;
 
-/*
-  MULTIPLE PC SETUP
-
-  For now this works locally in the browser.
-  For multiple PCs, replace BACKEND_URL with your shared API endpoint later.
-
-  Example later:
-  const BACKEND_URL = "https://your-lab-server/otl-api";
-
-  Required backend routes later:
-  GET  /comments
-  POST /comments
-  POST /tat-snapshot
-*/
 const BACKEND_URL = "";
 
 const STATUS_OPTIONS = [
   "Not located",
   "Located in lab",
   "With section",
+  "Sample in fridge",
+  "Sample in freezer",
   "Awaiting aliquot",
   "Awaiting analyser",
   "Problem sample",
@@ -37,47 +25,73 @@ const AGE_BUCKETS = [
   ">24 h"
 ];
 
-/*
-  Ward-specific TAT rules.
-  We will edit this when you give the final ward list.
-
-  Current default:
-  Emergency/ICU = 8 h
-  Everything else = 12 h
-*/
-const WARD_TAT_RULES = {
-  "Emergency": 8,
-  "ICU / High Care": 8,
-  "Medical wards": 12,
-  "Surgical wards": 12,
-  "Outpatients": 12,
-  "Other": 12
-};
+const OTL_RULES = [
+  {
+    category: "STAT C12/C14/C15",
+    filenameIncludes: ["bilqees.jacobs"],
+    locationIncludes: ["C12", "C14", "C15"],
+    tatHours: 2,
+    printFrequency: "Hourly",
+    reviewFrequency: "Every 2 hours"
+  },
+  {
+    category: "SACPRIO",
+    filenameIncludes: ["pamela.douglas"],
+    tatHours: 2,
+    printFrequency: "Same as STAT",
+    reviewFrequency: "Every 2 hours"
+  },
+  {
+    category: "SACCHEND / SACVOL",
+    filenameIncludes: ["kulsum.kasker"],
+    tatHours: 8,
+    printFrequency: "Every 3 hours",
+    reviewFrequency: "Every 3 hours",
+    onlyAppearsAfterHours: 2
+  },
+  {
+    category: "SACBAT",
+    filenameIncludes: ["ricardo.elario"],
+    tatHours: null,
+    printFrequency: "Weekly Monday",
+    reviewFrequency: "Daily freezer check",
+    freezerCheck: true
+  },
+  {
+    category: "SACX incorrect test code",
+    filenameIncludes: ["hoosain.shabudien"],
+    testIncludes: ["SACX"],
+    tatHours: 24,
+    printFrequency: "08:00",
+    reviewFrequency: "Daily"
+  },
+  {
+    category: "SAVSERO",
+    filenameIncludes: ["hoosain.shabudien"],
+    testIncludes: ["SAVSERO"],
+    tatHours: 24,
+    printFrequency: "08:00",
+    reviewFrequency: "Daily"
+  },
+  {
+    category: "C093 CRP OTL",
+    filenameIncludes: ["hoosain.shabudien"],
+    testIncludes: ["C093", "CRP"],
+    tatHours: 8,
+    printFrequency: "10:00 and 11:00",
+    reviewFrequency: "Twice daily"
+  }
+];
 
 const WARD_GROUPS = {
   "Emergency": [" EC", "EC--", "EMERGENCY", "CASUALTY", "TRAUMA"],
   "ICU / High Care": ["ICU", "HCU", "HIGH CARE", "CCU", "NICU", "PICU"],
-  "Medical wards": ["MED", "MEDICAL", "MOPD", "G13", "G14", "C13", "C14"],
+  "Medical wards": ["MED", "MEDICAL", "MOPD", "G13", "G14", "C13", "C14", "C12", "C15"],
   "Surgical wards": ["SURG", "SURGICAL", "ORTHO", "UROLOGY", "ENT"],
   "Outpatients": ["OPD", "CLINIC", "OUTPATIENT", "MOPD"],
   "Other": []
 };
 
-/*
-  Exact OTL columns seen in your files:
-  Visit Number
-  Patient Name
-  Location
-  Tests
-  Specimen Type
-  Collection Date
-  Registration Date
-  In Lab Date
-  Storage Positions
-  Referral Status
-  Alternative Reference
-  Internal Reference
-*/
 const COLUMN_ALIASES = {
   visitNumber: ["Visit Number", "Episode Number", "Episode", "Lab Number", "Accession Number"],
   patientName: ["Patient Name", "Patient"],
@@ -139,6 +153,7 @@ async function readFile(file) {
   }
 
   const buffer = await file.arrayBuffer();
+
   const workbook = XLSX.read(buffer, {
     type: "array",
     cellDates: true
@@ -256,8 +271,35 @@ function assignWardGroup(location) {
   return "Other";
 }
 
-function getTatTargetHours(wardGroup) {
-  return WARD_TAT_RULES[wardGroup] ?? WARD_TAT_RULES["Other"] ?? 12;
+function classifyOTL(row, sourceFile) {
+  const filename = String(sourceFile || "").toLowerCase();
+  const location = String(row.location || "").toUpperCase();
+  const test = String(row.test || "").toUpperCase();
+
+  for (const rule of OTL_RULES) {
+    const filenameOk = !rule.filenameIncludes || rule.filenameIncludes.some(x =>
+      filename.includes(x.toLowerCase())
+    );
+
+    const locationOk = !rule.locationIncludes || rule.locationIncludes.some(x =>
+      location.includes(x.toUpperCase())
+    );
+
+    const testOk = !rule.testIncludes || rule.testIncludes.some(x =>
+      test.includes(x.toUpperCase())
+    );
+
+    if (filenameOk && locationOk && testOk) {
+      return rule;
+    }
+  }
+
+  return {
+    category: "Unclassified OTL",
+    tatHours: 12,
+    printFrequency: "Unknown",
+    reviewFrequency: "Unknown"
+  };
 }
 
 function getTatStatus(ageHours, targetHours) {
@@ -362,6 +404,7 @@ async function saveTatSnapshot(rows) {
       location: r.location,
       wardGroup: r.wardGroup,
       test: r.test,
+      otlCategory: r.otlCategory,
       ageHours: Number(r.ageHours.toFixed(2)),
       targetHours: r.targetHours,
       tatLabel: r.tatLabel,
@@ -407,18 +450,40 @@ async function prepareRows(rows, sourceFile) {
     const internalReference = getValue(row, COLUMN_ALIASES.internalReference);
     const hospital = getValue(row, COLUMN_ALIASES.hospital);
 
-    const tatStart = inLabDate || registrationDate || collectionDate;
+    const tatStart = registrationDate || inLabDate || collectionDate;
 
     if (!visitNumber || !location || !test || !tatStart) return null;
 
     const ageHours = hoursSince(tatStart);
+
     if (!Number.isFinite(ageHours) || ageHours < 0 || ageHours > 24 * 90) return null;
 
     const wardGroup = assignWardGroup(location);
-    const targetHours = getTatTargetHours(wardGroup);
-    const tatStatus = getTatStatus(ageHours, targetHours);
 
-    const sampleKey = makeSampleKey(visitNumber, test, collectionDate || registrationDate || inLabDate);
+    const otlRule = classifyOTL(
+      {
+        location,
+        test
+      },
+      sourceFile
+    );
+
+    const targetHoursRaw = otlRule.tatHours;
+
+    const tatStatus = targetHoursRaw == null
+      ? {
+          label: "Freezer check",
+          overdue: false,
+          text: "Check sample is in freezer"
+        }
+      : getTatStatus(ageHours, targetHoursRaw);
+
+    const sampleKey = makeSampleKey(
+      visitNumber,
+      test,
+      collectionDate || registrationDate || inLabDate
+    );
+
     const saved = comments[sampleKey] || {};
 
     return {
@@ -437,7 +502,11 @@ async function prepareRows(rows, sourceFile) {
       tatStartDisplay: tatStart.toLocaleString(),
       ageHours,
       ageBucket: assignAgeBucket(ageHours),
-      targetHours,
+      otlCategory: otlRule.category,
+      printFrequency: otlRule.printFrequency,
+      reviewFrequency: otlRule.reviewFrequency,
+      freezerCheck: otlRule.freezerCheck || false,
+      targetHours: targetHoursRaw ?? "Freezer check",
       tatLabel: tatStatus.label,
       tatText: tatStatus.text,
       overdue: tatStatus.overdue,
@@ -502,14 +571,16 @@ function applyFilters() {
 
 function groupCount(rows, field) {
   const counts = {};
+
   rows.forEach(r => {
     counts[r[field]] = (counts[r[field]] || 0) + 1;
   });
+
   return counts;
 }
 
 function updateCharts(rows) {
-  const wardCounts = groupCount(rows, "wardGroup");
+  const wardCounts = groupCount(rows, "otlCategory");
 
   const ageCounts = {};
   AGE_BUCKETS.forEach(b => {
@@ -517,6 +588,7 @@ function updateCharts(rows) {
   });
 
   const wardCanvas = document.getElementById("wardChart");
+
   if (wardCanvas) {
     const wardCtx = wardCanvas.getContext("2d");
     if (wardChart) wardChart.destroy();
@@ -542,6 +614,7 @@ function updateCharts(rows) {
   }
 
   const ageCanvas = document.getElementById("ageChart");
+
   if (ageCanvas) {
     const ageCtx = ageCanvas.getContext("2d");
     if (ageChart) ageChart.destroy();
@@ -571,17 +644,17 @@ function updateSummaryTable(rows) {
   const tbody = document.querySelector("#summaryTable tbody");
   tbody.innerHTML = "";
 
-  const groups = [...new Set(rows.map(r => r.wardGroup))].sort();
+  const groups = [...new Set(rows.map(r => r.otlCategory))].sort();
 
   groups.forEach(group => {
-    const g = rows.filter(r => r.wardGroup === group);
+    const g = rows.filter(r => r.otlCategory === group);
     const tr = document.createElement("tr");
 
     const values = [
       group,
       g.length,
       ...AGE_BUCKETS.map(b => g.filter(r => r.ageBucket === b).length),
-      g.filter(r => ["Located in lab", "With section", "Resolved"].includes(r.techStatus)).length,
+      g.filter(r => ["Located in lab", "With section", "Resolved", "Sample in fridge", "Sample in freezer"].includes(r.techStatus)).length,
       g.filter(r => r.techStatus === "Problem sample").length
     ];
 
@@ -636,25 +709,31 @@ function renderTable(rows) {
       <td>
         ${escapeHTML(row.location)}
         <br>
-        <span class="small-text">${escapeHTML(row.wardGroup)} | Target ${row.targetHours} h</span>
+        <span class="small-text">${escapeHTML(row.wardGroup)}</span>
       </td>
 
       <td>
-        ${escapeHTML(row.test)}
+        <strong>${escapeHTML(row.test)}</strong>
         <br>
         <span class="small-text">${escapeHTML(row.specimenType)}</span>
+        <br>
+        <span class="small-text">${escapeHTML(row.otlCategory)}</span>
       </td>
 
       <td>
         ${escapeHTML(row.tatStartDisplay)}
         <br>
-        <span class="small-text">Using ${row.inLabDate ? "In Lab Date" : row.registrationDate ? "Registration Date" : "Collection Date"}</span>
+        <span class="small-text">TAT from Registration Date</span>
+        <br>
+        <span class="small-text">Target: ${escapeHTML(row.targetHours)}${typeof row.targetHours === "number" ? " h" : ""}</span>
       </td>
 
       <td>
         <strong>${escapeHTML(row.referralStatus || "On OTL")}</strong>
         <br>
         <span class="small-text">${escapeHTML(row.storagePositions || "No storage position listed")}</span>
+        <br>
+        <span class="small-text">Review: ${escapeHTML(row.reviewFrequency)}</span>
       </td>
 
       <td>
@@ -722,21 +801,23 @@ function updateInterpretation(rows) {
   const overdue = rows.filter(r => r.overdue).length;
   const near = rows.filter(r => r.tatLabel === "Near breach").length;
   const over24 = rows.filter(r => r.ageHours >= 24).length;
+  const freezer = rows.filter(r => r.freezerCheck).length;
   const problem = rows.filter(r => r.techStatus === "Problem sample").length;
 
   el.innerHTML = `
     There are <strong>${rows.length}</strong> current OTL row(s) in this view.
-    <strong>${overdue}</strong> are overdue based on their ward-specific TAT target,
+    <strong>${overdue}</strong> are outside TAT,
     <strong>${near}</strong> are near breach and
     <strong>${over24}</strong> are older than 24 hours.
     <br><br>
+    <strong>${freezer}</strong> row(s) are freezer-check OTLs.
+    <strong>${problem}</strong> item(s) are currently marked as problem samples.
+    <br><br>
     The oldest item is <strong>${escapeHTML(worst.test)}</strong>
     from <strong>${escapeHTML(worst.location)}</strong>,
-    received <strong>${formatHours(worst.ageHours)}</strong> ago.
-    Its target is <strong>${worst.targetHours} h</strong>
-    and it is currently <strong>${escapeHTML(worst.tatText)}</strong>.
-    <br><br>
-    <strong>${problem}</strong> item(s) are currently marked as problem samples.
+    registered <strong>${formatHours(worst.ageHours)}</strong> ago.
+    It is classified as <strong>${escapeHTML(worst.otlCategory)}</strong>
+    and is currently <strong>${escapeHTML(worst.tatText)}</strong>.
   `;
 }
 
@@ -747,7 +828,7 @@ function renderDashboard() {
   setMetric("episodesMetric", new Set(rows.map(r => r.visitNumber)).size.toLocaleString());
   setMetric("medianAgeMetric", formatHours(median(rows.map(r => r.ageHours))));
   setMetric("over24Metric", rows.filter(r => r.ageHours >= 24).length.toLocaleString());
-  setMetric("locatedMetric", rows.filter(r => ["Located in lab", "With section", "Resolved"].includes(r.techStatus)).length.toLocaleString());
+  setMetric("locatedMetric", rows.filter(r => ["Located in lab", "With section", "Resolved", "Sample in fridge", "Sample in freezer"].includes(r.techStatus)).length.toLocaleString());
   setMetric("notLocatedMetric", rows.filter(r => r.techStatus === "Not located").length.toLocaleString());
   setMetric("problemMetric", rows.filter(r => r.techStatus === "Problem sample").length.toLocaleString());
 
@@ -760,10 +841,89 @@ function renderDashboard() {
   updateInterpretation(rows);
 }
 
+function exportOTLWithComments() {
+  const rows = currentRows;
+
+  if (!rows.length) {
+    alert("No OTL data loaded.");
+    return;
+  }
+
+  const exportRows = rows.map(r => ({
+    "OTL Category": r.otlCategory,
+    "Visit Number": r.visitNumber,
+    "Patient Name": r.patientName,
+    "Location": r.location,
+    "Ward Group": r.wardGroup,
+    "Test": r.test,
+    "Specimen Type": r.specimenType,
+    "Registration / TAT Start": r.tatStartDisplay,
+    "Age Hours": r.ageHours.toFixed(2),
+    "TAT Target": r.targetHours,
+    "TAT Status": r.tatLabel,
+    "TAT Comment": r.tatText,
+    "Referral Status": r.referralStatus,
+    "Storage Positions": r.storagePositions,
+    "Tech Status": r.techStatus,
+    "Tech Comment": r.comment,
+    "Comment Updated At": r.commentUpdatedAt,
+    "Alternative Reference": r.alternativeReference,
+    "Internal Reference": r.internalReference,
+    "Print Frequency": r.printFrequency,
+    "Review Frequency": r.reviewFrequency,
+    "Source File": r.sourceFile
+  }));
+
+  const worksheet = XLSX.utils.json_to_sheet(exportRows);
+  const workbook = XLSX.utils.book_new();
+
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Current OTL");
+
+  const byCategory = {};
+  rows.forEach(r => {
+    if (!byCategory[r.otlCategory]) byCategory[r.otlCategory] = [];
+    byCategory[r.otlCategory].push(r);
+  });
+
+  Object.entries(byCategory).forEach(([category, categoryRows]) => {
+    const sheetRows = categoryRows.map(r => ({
+      "Visit Number": r.visitNumber,
+      "Patient Name": r.patientName,
+      "Location": r.location,
+      "Test": r.test,
+      "Registration / TAT Start": r.tatStartDisplay,
+      "Age Hours": r.ageHours.toFixed(2),
+      "TAT Target": r.targetHours,
+      "TAT Status": r.tatLabel,
+      "TAT Comment": r.tatText,
+      "Referral Status": r.referralStatus,
+      "Storage Positions": r.storagePositions,
+      "Tech Status": r.techStatus,
+      "Tech Comment": r.comment
+    }));
+
+    const safeName = category
+      .replace(/[\\/?*[\]:]/g, "")
+      .slice(0, 31);
+
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.json_to_sheet(sheetRows),
+      safeName || "OTL"
+    );
+  });
+
+  const now = new Date();
+  const stamp = now.toISOString().slice(0, 16).replace("T", "_").replace(":", "");
+
+  XLSX.writeFile(workbook, `OTL_with_comments_${stamp}.xlsx`);
+}
+
 function toCSV(rows) {
   const headers = [
+    "otl_category",
     "age_hours",
-    "tat_target_hours",
+    "tat_target",
     "tat_status",
     "tat_text",
     "age_bucket",
@@ -782,6 +942,8 @@ function toCSV(rows) {
     "comment_updated_at",
     "alternative_reference",
     "internal_reference",
+    "print_frequency",
+    "review_frequency",
     "source_file"
   ];
 
@@ -789,6 +951,7 @@ function toCSV(rows) {
 
   rows.forEach(r => {
     const values = [
+      r.otlCategory,
       r.ageHours.toFixed(2),
       r.targetHours,
       r.tatLabel,
@@ -809,6 +972,8 @@ function toCSV(rows) {
       r.commentUpdatedAt,
       r.alternativeReference,
       r.internalReference,
+      r.printFrequency,
+      r.reviewFrequency,
       r.sourceFile
     ];
 
@@ -835,6 +1000,7 @@ function downloadCSV(rows, filename) {
 
 document.getElementById("otlFiles").addEventListener("change", async event => {
   const files = [...event.target.files];
+
   if (!files.length) return;
 
   const all = [];
@@ -879,7 +1045,7 @@ document.getElementById("clearFilterBtn").addEventListener("click", () => {
 });
 
 document.getElementById("exportCurrentBtn").addEventListener("click", () => {
-  downloadCSV(currentRows, "current_combined_otl.csv");
+  exportOTLWithComments();
 });
 
 document.getElementById("exportViewBtn").addEventListener("click", () => {
