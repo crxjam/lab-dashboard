@@ -553,8 +553,8 @@ function applyFilters() {
 
 function splitTests(testString) {
   return String(testString || "")
-    .split(",")
-    .map(t => t.trim().replace(/^-/, ""))
+    .split(/[,\n;]+/)
+    .map(t => t.trim().replace(/^-/, "").trim())
     .filter(Boolean);
 }
 
@@ -562,7 +562,9 @@ function testItemCounts(rows) {
   const counts = {};
 
   rows.forEach(row => {
-    splitTests(row.test).forEach(test => {
+    const tests = splitTests(row.test);
+
+    tests.forEach(test => {
       counts[test] = (counts[test] || 0) + 1;
     });
   });
@@ -590,7 +592,13 @@ function updateCharts(rows) {
   });
 
   const wardCounts = groupCount(rows, "ward");
-  const testCounts = testItemCounts(rows);
+  const testCountsRaw = testItemCounts(rows);
+
+  const testCounts = Object.fromEntries(
+    Object.entries(testCountsRaw)
+      .sort((a, b) => b[1] - a[1])
+      .map(([test, count]) => [`${test} (${count})`, count])
+  );
 
   const wardCanvas = document.getElementById("wardChart");
 
