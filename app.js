@@ -551,6 +551,25 @@ function applyFilters() {
   renderDashboard();
 }
 
+function splitTests(testString) {
+  return String(testString || "")
+    .split(",")
+    .map(t => t.trim().replace(/^-/, ""))
+    .filter(Boolean);
+}
+
+function testItemCounts(rows) {
+  const counts = {};
+
+  rows.forEach(row => {
+    splitTests(row.test).forEach(test => {
+      counts[test] = (counts[test] || 0) + 1;
+    });
+  });
+
+  return counts;
+}
+
 function groupCount(rows, field) {
   const counts = {};
 
@@ -571,7 +590,7 @@ function updateCharts(rows) {
   });
 
   const wardCounts = groupCount(rows, "ward");
-  const testCounts = groupCount(rows, "test");
+  const testCounts = testItemCounts(rows);
 
   const wardCanvas = document.getElementById("wardChart");
 
