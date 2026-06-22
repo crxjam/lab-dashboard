@@ -3,8 +3,6 @@ let filteredRows = [];
 let wardChart = null;
 let tatChart = null;
 
-const BACKEND_URL = "";
-
 const STATUS_OPTIONS = [
   "Not located",
   "Located in lab",
@@ -17,13 +15,7 @@ const STATUS_OPTIONS = [
   "Resolved"
 ];
 
-const TAT_CATEGORIES = [
-  "<2 h",
-  "2-4 h",
-  "4-8 h",
-  "8-24 h",
-  ">24 h"
-];
+const TAT_CATEGORIES = ["<2 h", "2-4 h", "4-8 h", "8-24 h", ">24 h"];
 
 const OTL_RULES = [
   {
@@ -31,38 +23,32 @@ const OTL_RULES = [
     filenameIncludes: ["bilqees.jacobs"],
     locationIncludes: ["C12", "C14", "C15"],
     tatHours: 2,
-    printFrequency: "Hourly",
     reviewFrequency: "Every 2 hours"
   },
   {
     category: "SACPRIO",
     filenameIncludes: ["pamela.douglas"],
     tatHours: 2,
-    printFrequency: "Same as STAT",
     reviewFrequency: "Every 2 hours"
   },
   {
     category: "SACCHEND / SACVOL",
     filenameIncludes: ["kulsum.kasker"],
     tatHours: 8,
-    printFrequency: "Every 3 hours",
-    reviewFrequency: "Every 3 hours",
-    onlyAppearsAfterHours: 2
+    reviewFrequency: "Every 3 hours"
   },
   {
     category: "SACBAT",
     filenameIncludes: ["ricardo.elario"],
     tatHours: null,
-    printFrequency: "Weekly Monday",
-    reviewFrequency: "Daily freezer check",
-    freezerCheck: true
+    freezerCheck: true,
+    reviewFrequency: "Daily freezer check"
   },
   {
     category: "SACX incorrect test code",
     filenameIncludes: ["hoosain.shabudien"],
     testIncludes: ["SACX"],
     tatHours: 24,
-    printFrequency: "08:00",
     reviewFrequency: "Daily"
   },
   {
@@ -70,7 +56,6 @@ const OTL_RULES = [
     filenameIncludes: ["hoosain.shabudien"],
     testIncludes: ["SAVSERO"],
     tatHours: 24,
-    printFrequency: "08:00",
     reviewFrequency: "Daily"
   },
   {
@@ -78,19 +63,9 @@ const OTL_RULES = [
     filenameIncludes: ["hoosain.shabudien"],
     testIncludes: ["C093", "CRP"],
     tatHours: 8,
-    printFrequency: "10:00 and 11:00",
     reviewFrequency: "Twice daily"
   }
 ];
-
-const WARD_GROUPS = {
-  "Emergency": [" EC", "EC--", "EMERGENCY", "CASUALTY", "TRAUMA"],
-  "ICU / High Care": ["ICU", "HCU", "HIGH CARE", "CCU", "NICU", "PICU"],
-  "Medical wards": ["MED", "MEDICAL", "MOPD", "G13", "G14", "C13", "C14", "C12", "C15"],
-  "Surgical wards": ["SURG", "SURGICAL", "ORTHO", "UROLOGY", "ENT"],
-  "Outpatients": ["OPD", "CLINIC", "OUTPATIENT", "MOPD"],
-  "Other": []
-};
 
 const COLUMN_ALIASES = {
   visitNumber: ["Visit Number", "Episode Number", "Episode", "Lab Number", "Accession Number"],
@@ -107,6 +82,40 @@ const COLUMN_ALIASES = {
   internalReference: ["Internal Reference"],
   hospital: ["Hospital", "Facility"]
 };
+
+function normaliseName(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[_/()-]/g, " ")
+    .replace(/\s+/g, " ");
+}
+
+function getValue(row, aliasList) {
+  const keyMap = {};
+  Object.keys(row).forEach(k => {
+    keyMap[normaliseName(k)] = k;
+  });
+
+  for (const alias of aliasList) {
+    const actual = keyMap[normaliseName(alias)];
+    if (actual !== undefined) return row[actual];
+  }
+
+  return "";
+}
+
+function parseCSV(text) {
+  const lines = text.trim().split(/\r?\n/);
+  const headers = splitCSVLine(lines[0]).map(h => h.trim());
+
+  return lines.slice(1).filter(Boolean).map(line => {
+    const values = splitCSVLine(line);
+    const obj = {};
+    headers.forEach((h, i) => obj[h] = values[i] ?? "");
+    return obj;
+  });
+}
 
 function splitCSVLine(line) {
   const out = [];
@@ -133,18 +142,6 @@ function splitCSVLine(line) {
   return out;
 }
 
-function parseCSV(text) {
-  const lines = text.trim().split(/\r?\n/);
-  const headers = splitCSVLine(lines[0]).map(h => h.trim());
-
-  return lines.slice(1).filter(Boolean).map(line => {
-    const values = splitCSVLine(line);
-    const obj = {};
-    headers.forEach((h, i) => obj[h] = values[i] ?? "");
-    return obj;
-  });
-}
-
 async function readFile(file) {
   const name = file.name.toLowerCase();
 
@@ -154,10 +151,18 @@ async function readFile(file) {
 
   const buffer = await file.arrayBuffer();
 
-  const workbook = XLSX.read(buffer, {
-    type: "array",
-    cellDates: true
-  });
+  let workbook;
+  try {
+    workbook = XLSX.read(buffer, {
+      type: "array",
+      cellDates: true,
+      raw: false
+    });
+  } catch (error) {
+    alert("Could not read Excel file. Try opening the OTL in Excel and saving it again as .xlsx, then upload that saved copy.");
+    console.error(error);
+    return [];
+  }
 
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
 
@@ -168,50 +173,34 @@ async function readFile(file) {
   });
 
   const headerRowIndex = allRows.findIndex(row =>
-    row.some(cell => String(cell).trim() === "Visit Number")
+    row.some(cell => normaliseName(cell) === "visit number")
   );
 
   if (headerRowIndex === -1) {
-    alert("Could not find the OTL header row. Expected a column called Visit Number.");
+    alert("Could not find the OTL header row. I expected a column called Visit Number.");
+    console.log(allRows.slice(0, 20));
     return [];
   }
 
-  const headers = allRows[headerRowIndex].map(h => String(h).trim());
+  const headers = allRows[headerRowIndex].map(h => String(h || "").trim());
 
-  const dataRows = allRows.slice(headerRowIndex + 1).filter(row =>
-    row.some(cell => String(cell).trim() !== "")
-  );
+  const dataRows = allRows
+    .slice(headerRowIndex + 1)
+    .filter(row => row.some(cell => String(cell || "").trim() !== ""));
 
-  return dataRows.map(row => {
+  const objects = dataRows.map(row => {
     const obj = {};
     headers.forEach((header, i) => {
-      obj[header] = row[i] ?? "";
+      if (header) obj[header] = row[i] ?? "";
     });
     return obj;
   });
-}
 
-function normaliseName(value) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[_/()-]/g, " ")
-    .replace(/\s+/g, " ");
-}
+  console.log("OTL header row:", headerRowIndex + 1);
+  console.log("OTL rows read:", objects.length);
+  console.log("First OTL row:", objects[0]);
 
-function getValue(row, aliasList) {
-  const keyMap = {};
-
-  Object.keys(row).forEach(k => {
-    keyMap[normaliseName(k)] = k;
-  });
-
-  for (const alias of aliasList) {
-    const actual = keyMap[normaliseName(alias)];
-    if (actual !== undefined) return row[actual];
-  }
-
-  return "";
+  return objects;
 }
 
 function parseDate(value) {
@@ -224,32 +213,52 @@ function parseDate(value) {
     return new Date(excelEpoch.getTime() + value * 86400000);
   }
 
-  const text = String(value).trim();
+  let text = String(value).trim();
   if (!text) return null;
+
+  text = text.replace(/\u00A0/g, " ");
 
   let d = new Date(text);
   if (!isNaN(d)) return d;
 
   const m = text.match(
-    /^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/
+    /^(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?$/
   );
 
   if (m) {
-    const day = Number(m[1]);
-    const month = Number(m[2]) - 1;
-    const year = Number(m[3].length === 2 ? "20" + m[3] : m[3]);
-    const hour = Number(m[4] || 0);
-    const minute = Number(m[5] || 0);
-    const second = Number(m[6] || 0);
+    d = new Date(
+      Number(m[1]),
+      Number(m[2]) - 1,
+      Number(m[3]),
+      Number(m[4]),
+      Number(m[5]),
+      Number(m[6] || 0)
+    );
 
-    d = new Date(year, month, day, hour, minute, second);
+    if (!isNaN(d)) return d;
+  }
+
+  const m2 = text.match(
+    /^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/
+  );
+
+  if (m2) {
+    d = new Date(
+      Number(m2[3].length === 2 ? "20" + m2[3] : m2[3]),
+      Number(m2[2]) - 1,
+      Number(m2[1]),
+      Number(m2[4] || 0),
+      Number(m2[5] || 0),
+      Number(m2[6] || 0)
+    );
+
     if (!isNaN(d)) return d;
   }
 
   return null;
 }
 
-function tatHoursSince(date) {
+function currentTatHoursFrom(date) {
   return (new Date() - date) / 3600000;
 }
 
@@ -268,9 +277,10 @@ function formatTat(hours) {
 }
 
 function median(arr) {
-  if (!arr.length) return null;
+  const values = arr.filter(v => Number.isFinite(v));
+  if (!values.length) return null;
 
-  const s = [...arr].sort((a, b) => a - b);
+  const s = [...values].sort((a, b) => a - b);
   const mid = Math.floor(s.length / 2);
 
   return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
@@ -285,14 +295,14 @@ function assignTatCategory(hours) {
 }
 
 function assignWardGroup(location) {
-  const loc = ` ${String(location || "").toUpperCase()} `;
+  const loc = String(location || "").toUpperCase();
 
-  for (const [group, keys] of Object.entries(WARD_GROUPS)) {
-    if (group === "Other") continue;
-    if (keys.some(k => loc.includes(k.toUpperCase()))) return group;
-  }
+  if (loc.includes("EC--") || loc.includes(" EC") || loc.includes("EMERGENCY")) return "Emergency";
+  if (loc.includes("ICU") || loc.includes("HCU") || loc.includes("CCU")) return "ICU / High Care";
+  if (loc.includes("OPD") || loc.includes("CLINIC") || loc.includes("MOPD")) return "Outpatients";
+  if (loc.includes("SURG") || loc.includes("ORTHO") || loc.includes("UROLOGY")) return "Surgical wards";
 
-  return "Other";
+  return "Medical / other wards";
 }
 
 function classifyOTL(row, sourceFile) {
@@ -319,18 +329,25 @@ function classifyOTL(row, sourceFile) {
   return {
     category: "Unclassified OTL",
     tatHours: 12,
-    printFrequency: "Unknown",
     reviewFrequency: "Unknown"
   };
 }
 
 function getTatStatus(currentTatHours, targetTatHours) {
+  if (targetTatHours == null) {
+    return {
+      label: "Freezer check",
+      outsideTat: false,
+      text: "Check sample is in freezer"
+    };
+  }
+
   const diff = targetTatHours - currentTatHours;
 
   if (diff >= 2) {
     return {
       label: "Within TAT",
-      overdue: false,
+      outsideTat: false,
       text: `${formatTat(diff)} remaining`
     };
   }
@@ -338,21 +355,21 @@ function getTatStatus(currentTatHours, targetTatHours) {
   if (diff >= 0) {
     return {
       label: "Near breach",
-      overdue: false,
+      outsideTat: false,
       text: `${formatTat(diff)} remaining`
     };
   }
 
   return {
     label: "Outside TAT",
-    overdue: true,
+    outsideTat: true,
     text: `${formatTat(Math.abs(diff))} outside TAT`
   };
 }
 
-function makeSampleKey(visitNumber, test, collectionDate) {
-  const datePart = collectionDate
-    ? collectionDate.toISOString().slice(0, 10)
+function makeSampleKey(visitNumber, test, registrationDate) {
+  const datePart = registrationDate
+    ? registrationDate.toISOString().slice(0, 10)
     : "";
 
   return [
@@ -362,26 +379,7 @@ function makeSampleKey(visitNumber, test, collectionDate) {
   ].join("||");
 }
 
-function escapeHTML(value) {
-  return String(value ?? "").replace(/[&<>"']/g, ch => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#039;"
-  }[ch]));
-}
-
-async function getSavedComments() {
-  if (BACKEND_URL) {
-    try {
-      const response = await fetch(`${BACKEND_URL}/comments`);
-      if (response.ok) return await response.json();
-    } catch (e) {
-      console.warn("Backend comments failed, falling back to localStorage", e);
-    }
-  }
-
+function getSavedComments() {
   try {
     return JSON.parse(localStorage.getItem("otlComments") || "{}");
   } catch {
@@ -389,61 +387,18 @@ async function getSavedComments() {
   }
 }
 
-async function saveComment(sampleKey, payload) {
-  if (BACKEND_URL) {
-    try {
-      await fetch(`${BACKEND_URL}/comments`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          sampleKey,
-          ...payload
-        })
-      });
-      return;
-    } catch (e) {
-      console.warn("Backend save failed, falling back to localStorage", e);
-    }
-  }
-
-  const comments = JSON.parse(localStorage.getItem("otlComments") || "{}");
+function saveComment(sampleKey, payload) {
+  const comments = getSavedComments();
   comments[sampleKey] = payload;
   localStorage.setItem("otlComments", JSON.stringify(comments));
 }
 
-async function saveTatSnapshot(rows) {
-  const extractTime = new Date().toISOString();
-
-  const snapshot = {
-    extractTime,
-    count: rows.length,
-    rows: rows.map(r => ({
-      sampleKey: r.sampleKey,
-      visitNumber: r.visitNumber,
-      patientName: r.patientName,
-      location: r.location,
-      wardGroup: r.wardGroup,
-      test: r.test,
-      otlCategory: r.otlCategory,
-      currentTatHours: Number(r.currentTatHours.toFixed(2)),
-      targetTatHours: r.targetTatHours,
-      tatLabel: r.tatLabel,
-      techStatus: r.techStatus
-    }))
-  };
-
-  const history = JSON.parse(localStorage.getItem("otlTatHistory") || "[]");
-  history.push(snapshot);
-  localStorage.setItem("otlTatHistory", JSON.stringify(history.slice(-50)));
-  localStorage.setItem("otlLastExtractTime", extractTime);
-}
-
 async function prepareRows(rows, sourceFile) {
-  const comments = await getSavedComments();
+  const comments = getSavedComments();
+  const prepared = [];
+  const rejected = [];
 
-  return rows.map(row => {
+  rows.forEach(row => {
     const visitNumber = getValue(row, COLUMN_ALIASES.visitNumber);
     const patientName = getValue(row, COLUMN_ALIASES.patientName);
     const location = getValue(row, COLUMN_ALIASES.location);
@@ -460,40 +415,26 @@ async function prepareRows(rows, sourceFile) {
 
     const tatStart = registrationDate || inLabDate || collectionDate;
 
-    if (!visitNumber || !location || !test || !tatStart) return null;
+    if (!visitNumber || !test || !tatStart) {
+      rejected.push({ reason: "Missing visit/test/tatStart", row });
+      return;
+    }
 
-    const currentTatHours = tatHoursSince(tatStart);
+    const currentTatHours = currentTatHoursFrom(tatStart);
 
-    if (!Number.isFinite(currentTatHours) || currentTatHours < 0 || currentTatHours > 24 * 90) {
-      return null;
+    if (!Number.isFinite(currentTatHours)) {
+      rejected.push({ reason: "Invalid TAT", row });
+      return;
     }
 
     const wardGroup = assignWardGroup(location);
+    const otlRule = classifyOTL({ location, test }, sourceFile);
+    const tatStatus = getTatStatus(currentTatHours, otlRule.tatHours);
 
-    const otlRule = classifyOTL(
-      { location, test },
-      sourceFile
-    );
-
-    const targetTatRaw = otlRule.tatHours;
-
-    const tatStatus = targetTatRaw == null
-      ? {
-          label: "Freezer check",
-          overdue: false,
-          text: "Check sample is in freezer"
-        }
-      : getTatStatus(currentTatHours, targetTatRaw);
-
-    const sampleKey = makeSampleKey(
-      visitNumber,
-      test,
-      collectionDate || registrationDate || inLabDate
-    );
-
+    const sampleKey = makeSampleKey(visitNumber, test, registrationDate || collectionDate || inLabDate);
     const saved = comments[sampleKey] || {};
 
-    return {
+    prepared.push({
       sampleKey,
       visitNumber: String(visitNumber || "").trim(),
       patientName: String(patientName || "").trim(),
@@ -510,13 +451,12 @@ async function prepareRows(rows, sourceFile) {
       currentTatHours,
       tatCategory: assignTatCategory(currentTatHours),
       otlCategory: otlRule.category,
-      printFrequency: otlRule.printFrequency,
       reviewFrequency: otlRule.reviewFrequency,
       freezerCheck: otlRule.freezerCheck || false,
-      targetTatHours: targetTatRaw ?? "Freezer check",
+      targetTatHours: otlRule.tatHours == null ? "Freezer check" : otlRule.tatHours,
       tatLabel: tatStatus.label,
       tatText: tatStatus.text,
-      outsideTat: tatStatus.overdue,
+      outsideTat: tatStatus.outsideTat,
       storagePositions: String(storagePositions || "").trim(),
       referralStatus: String(referralStatus || "").trim(),
       alternativeReference: String(alternativeReference || "").trim(),
@@ -525,13 +465,28 @@ async function prepareRows(rows, sourceFile) {
       techStatus: saved.techStatus || "Not located",
       comment: saved.comment || "",
       commentUpdatedAt: saved.updatedAt || ""
-    };
-  }).filter(Boolean);
+    });
+  });
+
+  console.log("Prepared rows:", prepared.length);
+  console.log("Rejected rows:", rejected.length, rejected.slice(0, 5));
+
+  return prepared;
 }
 
 function safeContains(value, query) {
   if (!query) return true;
   return String(value || "").toLowerCase().includes(query.toLowerCase());
+}
+
+function escapeHTML(value) {
+  return String(value ?? "").replace(/[&<>"']/g, ch => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#039;"
+  }[ch]));
 }
 
 function setMetric(id, value) {
@@ -541,8 +496,9 @@ function setMetric(id, value) {
 
 function populateWardFilter() {
   const select = document.getElementById("wardGroupFilter");
-  const current = select.value;
+  if (!select) return;
 
+  const current = select.value;
   const groups = [...new Set(currentRows.map(r => r.otlCategory))].sort();
 
   select.innerHTML = '<option value="">All OTL Sections</option>';
@@ -558,52 +514,50 @@ function populateWardFilter() {
 }
 
 function applyFilters() {
-  const selectedSection = document.getElementById("wardGroupFilter").value;
-  const selectedTat = document.getElementById("ageFilter").value;
-  const selectedStatus = document.getElementById("statusFilter").value;
-  const wardText = document.getElementById("wardTextFilter").value.trim();
-  const testText = document.getElementById("testTextFilter").value.trim();
-  const episodeText = document.getElementById("episodeTextFilter").value.trim();
+  const selectedSection = document.getElementById("wardGroupFilter")?.value || "";
+  const selectedTat = document.getElementById("ageFilter")?.value || "";
+  const selectedStatus = document.getElementById("statusFilter")?.value || "";
+  const wardText = document.getElementById("wardTextFilter")?.value.trim() || "";
+  const testText = document.getElementById("testTextFilter")?.value.trim() || "";
+  const episodeText = document.getElementById("episodeTextFilter")?.value.trim() || "";
 
-  filteredRows = currentRows.filter(r => {
-    return (
-      (!selectedSection || r.otlCategory === selectedSection || r.wardGroup === selectedSection) &&
-      (!selectedTat || r.tatCategory === selectedTat) &&
-      (!selectedStatus || r.techStatus === selectedStatus) &&
-      safeContains(r.location, wardText) &&
-      safeContains(r.test, testText) &&
-      safeContains(r.visitNumber, episodeText)
-    );
-  });
+  filteredRows = currentRows.filter(r =>
+    (!selectedSection || r.otlCategory === selectedSection || r.wardGroup === selectedSection) &&
+    (!selectedTat || r.tatCategory === selectedTat) &&
+    (!selectedStatus || r.techStatus === selectedStatus) &&
+    safeContains(r.location, wardText) &&
+    safeContains(r.test, testText) &&
+    safeContains(r.visitNumber, episodeText)
+  );
+
+  console.log("Current rows:", currentRows.length);
+  console.log("Filtered rows:", filteredRows.length);
 
   renderDashboard();
 }
 
 function groupCount(rows, field) {
   const counts = {};
-
   rows.forEach(r => {
-    counts[r[field]] = (counts[r[field]] || 0) + 1;
+    const key = r[field] || "Unknown";
+    counts[key] = (counts[key] || 0) + 1;
   });
-
   return counts;
 }
 
 function updateCharts(rows) {
   const sectionCounts = groupCount(rows, "otlCategory");
-
   const tatCounts = {};
   TAT_CATEGORIES.forEach(b => {
     tatCounts[b] = rows.filter(r => r.tatCategory === b).length;
   });
 
   const wardCanvas = document.getElementById("wardChart");
-
   if (wardCanvas) {
-    const wardCtx = wardCanvas.getContext("2d");
+    const ctx = wardCanvas.getContext("2d");
     if (wardChart) wardChart.destroy();
 
-    wardChart = new Chart(wardCtx, {
+    wardChart = new Chart(ctx, {
       type: "bar",
       data: {
         labels: Object.keys(sectionCounts),
@@ -614,20 +568,17 @@ function updateCharts(rows) {
       },
       options: {
         responsive: true,
-        scales: {
-          y: { beginAtZero: true }
-        }
+        scales: { y: { beginAtZero: true } }
       }
     });
   }
 
   const tatCanvas = document.getElementById("ageChart");
-
   if (tatCanvas) {
-    const tatCtx = tatCanvas.getContext("2d");
+    const ctx = tatCanvas.getContext("2d");
     if (tatChart) tatChart.destroy();
 
-    tatChart = new Chart(tatCtx, {
+    tatChart = new Chart(ctx, {
       type: "bar",
       data: {
         labels: Object.keys(tatCounts),
@@ -638,9 +589,7 @@ function updateCharts(rows) {
       },
       options: {
         responsive: true,
-        scales: {
-          y: { beginAtZero: true }
-        }
+        scales: { y: { beginAtZero: true } }
       }
     });
   }
@@ -648,6 +597,8 @@ function updateCharts(rows) {
 
 function updateSummaryTable(rows) {
   const tbody = document.querySelector("#summaryTable tbody");
+  if (!tbody) return;
+
   tbody.innerHTML = "";
 
   const groups = [...new Set(rows.map(r => r.otlCategory))].sort();
@@ -691,6 +642,8 @@ function tatBadge(row) {
 
 function renderTable(rows) {
   const tbody = document.querySelector("#otlTable tbody");
+  if (!tbody) return;
+
   tbody.innerHTML = "";
 
   const sorted = [...rows].sort((a, b) => b.currentTatHours - a.currentTatHours);
@@ -761,34 +714,29 @@ function renderTable(rows) {
   });
 
   document.querySelectorAll(".save-row-btn").forEach(btn => {
-    btn.addEventListener("click", async event => {
+    btn.addEventListener("click", event => {
       const tr = event.target.closest("tr");
-      const sampleKey = tr.dataset.sampleKey;
-      const techStatus = tr.querySelector(".row-status").value;
-      const comment = tr.querySelector(".row-comment").value;
-
-      await saveRowComment(sampleKey, techStatus, comment);
+      saveRowComment(
+        tr.dataset.sampleKey,
+        tr.querySelector(".row-status").value,
+        tr.querySelector(".row-comment").value
+      );
     });
   });
 }
 
-async function saveRowComment(sampleKey, techStatus, comment) {
+function saveRowComment(sampleKey, techStatus, comment) {
   const payload = {
     techStatus,
     comment,
     updatedAt: new Date().toISOString()
   };
 
-  await saveComment(sampleKey, payload);
+  saveComment(sampleKey, payload);
 
   currentRows = currentRows.map(r =>
     r.sampleKey === sampleKey
-      ? {
-          ...r,
-          techStatus,
-          comment,
-          commentUpdatedAt: payload.updatedAt
-        }
+      ? { ...r, techStatus, comment, commentUpdatedAt: payload.updatedAt }
       : r
   );
 
@@ -797,9 +745,12 @@ async function saveRowComment(sampleKey, techStatus, comment) {
 
 function updateInterpretation(rows) {
   const el = document.getElementById("interpretationBox");
+  if (!el) return;
 
   if (!rows.length) {
-    el.textContent = "No current OTL rows match the filter.";
+    el.textContent = currentRows.length
+      ? "No current OTL rows match the filter. Press Clear Filters to show all loaded rows."
+      : "No OTL rows loaded. Upload an OTL extract to begin.";
     return;
   }
 
@@ -847,15 +798,37 @@ function renderDashboard() {
   updateInterpretation(rows);
 }
 
-function exportOTLWithComments() {
-  const rows = currentRows;
+function saveTatSnapshot(rows) {
+  const extractTime = new Date().toISOString();
 
-  if (!rows.length) {
+  const history = JSON.parse(localStorage.getItem("otlTatHistory") || "[]");
+
+  history.push({
+    extractTime,
+    count: rows.length,
+    rows: rows.map(r => ({
+      sampleKey: r.sampleKey,
+      visitNumber: r.visitNumber,
+      test: r.test,
+      location: r.location,
+      otlCategory: r.otlCategory,
+      currentTatHours: Number(r.currentTatHours.toFixed(2)),
+      tatLabel: r.tatLabel,
+      techStatus: r.techStatus
+    }))
+  });
+
+  localStorage.setItem("otlTatHistory", JSON.stringify(history.slice(-50)));
+  localStorage.setItem("otlLastExtractTime", extractTime);
+}
+
+function exportOTLWithComments() {
+  if (!currentRows.length) {
     alert("No OTL data loaded.");
     return;
   }
 
-  const exportRows = rows.map(r => ({
+  const exportRows = currentRows.map(r => ({
     "OTL Category": r.otlCategory,
     "Visit Number": r.visitNumber,
     "Patient Name": r.patientName,
@@ -873,10 +846,6 @@ function exportOTLWithComments() {
     "Tech Status": r.techStatus,
     "Tech Comment": r.comment,
     "Comment Updated At": r.commentUpdatedAt,
-    "Alternative Reference": r.alternativeReference,
-    "Internal Reference": r.internalReference,
-    "Print Frequency": r.printFrequency,
-    "Review Frequency": r.reviewFrequency,
     "Source File": r.sourceFile
   }));
 
@@ -884,38 +853,6 @@ function exportOTLWithComments() {
   const workbook = XLSX.utils.book_new();
 
   XLSX.utils.book_append_sheet(workbook, worksheet, "Current OTL");
-
-  const byCategory = {};
-  rows.forEach(r => {
-    if (!byCategory[r.otlCategory]) byCategory[r.otlCategory] = [];
-    byCategory[r.otlCategory].push(r);
-  });
-
-  Object.entries(byCategory).forEach(([category, categoryRows]) => {
-    const sheetRows = categoryRows.map(r => ({
-      "Visit Number": r.visitNumber,
-      "Patient Name": r.patientName,
-      "Location": r.location,
-      "Test": r.test,
-      "Registration / TAT Start": r.tatStartDisplay,
-      "Current TAT Hours": r.currentTatHours.toFixed(2),
-      "TAT Target": r.targetTatHours,
-      "TAT Status": r.tatLabel,
-      "TAT Comment": r.tatText,
-      "Referral Status": r.referralStatus,
-      "Storage Positions": r.storagePositions,
-      "Tech Status": r.techStatus,
-      "Tech Comment": r.comment
-    }));
-
-    const safeName = category.replace(/[\\/?*[\]:]/g, "").slice(0, 31);
-
-    XLSX.utils.book_append_sheet(
-      workbook,
-      XLSX.utils.json_to_sheet(sheetRows),
-      safeName || "OTL"
-    );
-  });
 
   const now = new Date();
   const stamp = now.toISOString().slice(0, 16).replace("T", "_").replace(":", "");
@@ -944,10 +881,6 @@ function toCSV(rows) {
     "tech_status",
     "comment",
     "comment_updated_at",
-    "alternative_reference",
-    "internal_reference",
-    "print_frequency",
-    "review_frequency",
     "source_file"
   ];
 
@@ -974,10 +907,6 @@ function toCSV(rows) {
       r.techStatus,
       r.comment,
       r.commentUpdatedAt,
-      r.alternativeReference,
-      r.internalReference,
-      r.printFrequency,
-      r.reviewFrequency,
       r.sourceFile
     ];
 
@@ -1022,35 +951,33 @@ document.getElementById("otlFiles").addEventListener("change", async event => {
   });
 
   currentRows = [...deduped.values()];
-
-  await saveTatSnapshot(currentRows);
-
-  populateWardFilter();
-
   filteredRows = [...currentRows];
 
+  saveTatSnapshot(currentRows);
+  populateWardFilter();
   renderDashboard();
+
+  alert(`Loaded ${currentRows.length} OTL row(s).`);
 });
 
 document.getElementById("applyFilterBtn").addEventListener("click", applyFilters);
 
 document.getElementById("clearFilterBtn").addEventListener("click", () => {
   ["wardGroupFilter", "ageFilter", "statusFilter"].forEach(id => {
-    document.getElementById(id).value = "";
+    const el = document.getElementById(id);
+    if (el) el.value = "";
   });
 
   ["wardTextFilter", "testTextFilter", "episodeTextFilter"].forEach(id => {
-    document.getElementById(id).value = "";
+    const el = document.getElementById(id);
+    if (el) el.value = "";
   });
 
   filteredRows = [...currentRows];
-
   renderDashboard();
 });
 
-document.getElementById("exportCurrentBtn").addEventListener("click", () => {
-  exportOTLWithComments();
-});
+document.getElementById("exportCurrentBtn").addEventListener("click", exportOTLWithComments);
 
 document.getElementById("exportViewBtn").addEventListener("click", () => {
   downloadCSV(filteredRows, "filtered_otl_view.csv");
@@ -1065,11 +992,9 @@ document.getElementById("exportViewBtn").addEventListener("click", () => {
   "episodeTextFilter"
 ].forEach(id => {
   const el = document.getElementById(id);
-
   if (!el) return;
 
   el.addEventListener("change", applyFilters);
-
   el.addEventListener("keyup", event => {
     if (event.key === "Enter") applyFilters();
   });
