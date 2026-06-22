@@ -161,9 +161,33 @@ async function readFile(file) {
 
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
 
-  return XLSX.utils.sheet_to_json(sheet, {
+  const allRows = XLSX.utils.sheet_to_json(sheet, {
+    header: 1,
     defval: "",
     raw: false
+  });
+
+  const headerRowIndex = allRows.findIndex(row =>
+    row.some(cell => String(cell).trim() === "Visit Number")
+  );
+
+  if (headerRowIndex === -1) {
+    alert("Could not find the OTL header row. Expected a column called Visit Number.");
+    return [];
+  }
+
+  const headers = allRows[headerRowIndex].map(h => String(h).trim());
+
+  const dataRows = allRows.slice(headerRowIndex + 1).filter(row =>
+    row.some(cell => String(cell).trim() !== "")
+  );
+
+  return dataRows.map(row => {
+    const obj = {};
+    headers.forEach((header, i) => {
+      obj[header] = row[i] ?? "";
+    });
+    return obj;
   });
 }
 
