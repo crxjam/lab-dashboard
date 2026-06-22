@@ -1,7 +1,7 @@
 let currentRows = [];
 let filteredRows = [];
 let wardChart = null;
-let ageChart = null;
+let tatChart = null;
 
 const BACKEND_URL = "";
 
@@ -17,7 +17,7 @@ const STATUS_OPTIONS = [
   "Resolved"
 ];
 
-const TAT_BUCKETS = [
+const TAT_CATEGORIES = [
   "<2 h",
   "2-4 h",
   "4-8 h",
@@ -225,11 +225,11 @@ function parseDate(value) {
   return null;
 }
 
-function hoursSince(date) {
+function tatHoursSince(date) {
   return (new Date() - date) / 3600000;
 }
 
-function formatHours(hours) {
+function formatTat(hours) {
   if (hours == null || !Number.isFinite(hours)) return "-";
 
   if (hours < 1) return `${Math.round(hours * 60)} min`;
@@ -289,9 +289,7 @@ function classifyOTL(row, sourceFile) {
       test.includes(x.toUpperCase())
     );
 
-    if (filenameOk && locationOk && testOk) {
-      return rule;
-    }
+    if (filenameOk && locationOk && testOk) return rule;
   }
 
   return {
@@ -302,14 +300,14 @@ function classifyOTL(row, sourceFile) {
   };
 }
 
-function getTatStatus(ageHours, targetHours) {
-  const diff = targetHours - ageHours;
+function getTatStatus(currentTatHours, targetTatHours) {
+  const diff = targetTatHours - currentTatHours;
 
   if (diff >= 2) {
     return {
       label: "Within TAT",
       overdue: false,
-      text: `${formatHours(diff)} remaining`
+      text: `${formatTat(diff)} remaining`
     };
   }
 
@@ -317,14 +315,14 @@ function getTatStatus(ageHours, targetHours) {
     return {
       label: "Near breach",
       overdue: false,
-      text: `${formatHours(diff)} remaining`
+      text: `${formatTat(diff)} remaining`
     };
   }
 
   return {
-    label: "Overdue",
+    label: "Outside TAT",
     overdue: true,
-    text: `${formatHours(Math.abs(diff))} overdue`
+    text: `${formatTat(Math.abs(diff))} outside TAT`
   };
 }
 
@@ -405,26 +403,12 @@ async function saveTatSnapshot(rows) {
       wardGroup: r.wardGroup,
       test: r.test,
       otlCategory: r.otlCategory,
-      ageHours: Number(r.ageHours.toFixed(2)),
-      targetHours: r.targetHours,
+      currentTatHours: Number(r.currentTatHours.toFixed(2)),
+      targetTatHours: r.targetTatHours,
       tatLabel: r.tatLabel,
       techStatus: r.techStatus
     }))
   };
-
-  if (BACKEND_URL) {
-    try {
-      await fetch(`${BACKEND_URL}/tat-snapshot`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(snapshot)
-      });
-    } catch (e) {
-      console.warn("Backend TAT snapshot failed", e);
-    }
-  }
 
   const history = JSON.parse(localStorage.getItem("otlTatHistory") || "[]");
   history.push(snapshot);
@@ -454,29 +438,28 @@ async function prepareRows(rows, sourceFile) {
 
     if (!visitNumber || !location || !test || !tatStart) return null;
 
-    const ageHours = hoursSince(tatStart);
+    const currentTatHours = tatHoursSince(tatStart);
 
-    if (!Number.isFinite(ageHours) || ageHours < 0 || ageHours > 24 * 90) return null;
+    if (!Number.isFinite(currentTatHours) || currentTatHours < 0 || currentTatHours > 24 * 90) {
+      return null;
+    }
 
     const wardGroup = assignWardGroup(location);
 
     const otlRule = classifyOTL(
-      {
-        location,
-        test
-      },
+      { location, test },
       sourceFile
     );
 
-    const targetHoursRaw = otlRule.tatHours;
+    const targetTatRaw = otlRule.tatHours;
 
-    const tatStatus = targetHoursRaw == null
+    const tatStatus = targetTatRaw == null
       ? {
           label: "Freezer check",
           overdue: false,
           text: "Check sample is in freezer"
         }
-      : getTatStatus(ageHours, targetHoursRaw);
+      : getTatStatus(currentTatHours, targetTatRaw);
 
     const sampleKey = makeSampleKey(
       visitNumber,
@@ -500,16 +483,16 @@ async function prepareRows(rows, sourceFile) {
       inLabDate,
       tatStart,
       tatStartDisplay: tatStart.toLocaleString(),
-      ageHours,
-      tatCategory: assignTatCategory(ageHours),
+      currentTatHours,
+      tatCategory: assignTatCategory(currentTatHours),
       otlCategory: otlRule.category,
       printFrequency: otlRule.printFrequency,
       reviewFrequency: otlRule.reviewFrequency,
       freezerCheck: otlRule.freezerCheck || false,
-      targetHours: targetHoursRaw ?? "Freezer check",
+      targetTatHours: targetTatRaw ?? "Freezer check",
       tatLabel: tatStatus.label,
       tatText: tatStatus.text,
-      overdue: tatStatus.overdue,
+      outsideTat: tatStatus.overdue,
       storagePositions: String(storagePositions || "").trim(),
       referralStatus: String(referralStatus || "").trim(),
       alternativeReference: String(alternativeReference || "").trim(),
@@ -535,9 +518,10 @@ function setMetric(id, value) {
 function populateWardFilter() {
   const select = document.getElementById("wardGroupFilter");
   const current = select.value;
-  const groups = [...new Set(currentRows.map(r => r.wardGroup))].sort();
 
-  select.innerHTML = '<option value="">All Ward Sections</option>';
+  const groups = [...new Set(currentRows.map(r => r.otlCategory))].sort();
+
+  select.innerHTML = '<option value="">All OTL Sections</option>';
 
   groups.forEach(group => {
     const opt = document.createElement("option");
@@ -550,21 +534,23 @@ function populateWardFilter() {
 }
 
 function applyFilters() {
-  const wardGroup = document.getElementById("wardGroupFilter").value;
-  const age = document.getElementById("ageFilter").value;
-  const status = document.getElementById("statusFilter").value;
+  const selectedSection = document.getElementById("wardGroupFilter").value;
+  const selectedTat = document.getElementById("ageFilter").value;
+  const selectedStatus = document.getElementById("statusFilter").value;
   const wardText = document.getElementById("wardTextFilter").value.trim();
   const testText = document.getElementById("testTextFilter").value.trim();
   const episodeText = document.getElementById("episodeTextFilter").value.trim();
 
-  filteredRows = currentRows.filter(r =>
-    (!wardGroup || r.wardGroup === wardGroup) &&
-    (!age || r.tatCategory === age) &&
-    (!status || r.techStatus === status) &&
-    safeContains(r.location, wardText) &&
-    safeContains(r.test, testText) &&
-    safeContains(r.visitNumber, episodeText)
-  );
+  filteredRows = currentRows.filter(r => {
+    return (
+      (!selectedSection || r.otlCategory === selectedSection || r.wardGroup === selectedSection) &&
+      (!selectedTat || r.tatCategory === selectedTat) &&
+      (!selectedStatus || r.techStatus === selectedStatus) &&
+      safeContains(r.location, wardText) &&
+      safeContains(r.test, testText) &&
+      safeContains(r.visitNumber, episodeText)
+    );
+  });
 
   renderDashboard();
 }
@@ -580,11 +566,11 @@ function groupCount(rows, field) {
 }
 
 function updateCharts(rows) {
-  const wardCounts = groupCount(rows, "otlCategory");
+  const sectionCounts = groupCount(rows, "otlCategory");
 
-  const ageCounts = {};
-  TAT_BUCKETS.forEach(b => {
-    ageCounts[b] = rows.filter(r => r.tatCategory === b).length;
+  const tatCounts = {};
+  TAT_CATEGORIES.forEach(b => {
+    tatCounts[b] = rows.filter(r => r.tatCategory === b).length;
   });
 
   const wardCanvas = document.getElementById("wardChart");
@@ -596,44 +582,40 @@ function updateCharts(rows) {
     wardChart = new Chart(wardCtx, {
       type: "bar",
       data: {
-        labels: Object.keys(wardCounts),
+        labels: Object.keys(sectionCounts),
         datasets: [{
           label: "Current OTL rows",
-          data: Object.values(wardCounts)
+          data: Object.values(sectionCounts)
         }]
       },
       options: {
         responsive: true,
         scales: {
-          y: {
-            beginAtZero: true
-          }
+          y: { beginAtZero: true }
         }
       }
     });
   }
 
-  const ageCanvas = document.getElementById("ageChart");
+  const tatCanvas = document.getElementById("ageChart");
 
-  if (ageCanvas) {
-    const ageCtx = ageCanvas.getContext("2d");
-    if (ageChart) ageChart.destroy();
+  if (tatCanvas) {
+    const tatCtx = tatCanvas.getContext("2d");
+    if (tatChart) tatChart.destroy();
 
-    ageChart = new Chart(ageCtx, {
+    tatChart = new Chart(tatCtx, {
       type: "bar",
       data: {
-        labels: Object.keys(ageCounts),
+        labels: Object.keys(tatCounts),
         datasets: [{
           label: "Current OTL rows",
-          data: Object.values(ageCounts)
+          data: Object.values(tatCounts)
         }]
       },
       options: {
         responsive: true,
         scales: {
-          y: {
-            beginAtZero: true
-          }
+          y: { beginAtZero: true }
         }
       }
     });
@@ -653,7 +635,7 @@ function updateSummaryTable(rows) {
     const values = [
       group,
       g.length,
-      ...TAT_BUCKETS.map(b => g.filter(r => r.tatCategory === b).length),
+      ...TAT_CATEGORIES.map(b => g.filter(r => r.tatCategory === b).length),
       g.filter(r => ["Located in lab", "With section", "Resolved", "Sample in fridge", "Sample in freezer"].includes(r.techStatus)).length,
       g.filter(r => r.techStatus === "Problem sample").length
     ];
@@ -668,15 +650,15 @@ function updateSummaryTable(rows) {
   });
 }
 
-function ageBadge(row) {
+function tatBadge(row) {
   let cls = "";
 
-  if (row.overdue) cls = "old";
+  if (row.outsideTat) cls = "old";
   else if (row.tatLabel === "Near breach") cls = "warn";
 
   return `
     <span class="age-badge ${cls}">
-      ${formatHours(row.ageHours)}
+      ${formatTat(row.currentTatHours)}
       <br>
       <small>${escapeHTML(row.tatText)}</small>
     </span>
@@ -687,7 +669,7 @@ function renderTable(rows) {
   const tbody = document.querySelector("#otlTable tbody");
   tbody.innerHTML = "";
 
-  const sorted = [...rows].sort((a, b) => b.ageHours - a.ageHours);
+  const sorted = [...rows].sort((a, b) => b.currentTatHours - a.currentTatHours);
 
   sorted.forEach(row => {
     const tr = document.createElement("tr");
@@ -698,7 +680,7 @@ function renderTable(rows) {
     ).join("");
 
     tr.innerHTML = `
-      <td>${ageBadge(row)}</td>
+      <td>${tatBadge(row)}</td>
 
       <td>
         <strong>${escapeHTML(row.visitNumber)}</strong>
@@ -725,7 +707,7 @@ function renderTable(rows) {
         <br>
         <span class="small-text">TAT from Registration Date</span>
         <br>
-        <span class="small-text">Target: ${escapeHTML(row.targetHours)}${typeof row.targetHours === "number" ? " h" : ""}</span>
+        <span class="small-text">Target: ${escapeHTML(row.targetTatHours)}${typeof row.targetTatHours === "number" ? " h" : ""}</span>
       </td>
 
       <td>
@@ -797,25 +779,25 @@ function updateInterpretation(rows) {
     return;
   }
 
-  const worst = [...rows].sort((a, b) => b.ageHours - a.ageHours)[0];
-  const overdue = rows.filter(r => r.overdue).length;
+  const worst = [...rows].sort((a, b) => b.currentTatHours - a.currentTatHours)[0];
+  const outsideTat = rows.filter(r => r.outsideTat).length;
   const near = rows.filter(r => r.tatLabel === "Near breach").length;
-  const over24 = rows.filter(r => r.ageHours >= 24).length;
+  const over24 = rows.filter(r => r.currentTatHours >= 24).length;
   const freezer = rows.filter(r => r.freezerCheck).length;
   const problem = rows.filter(r => r.techStatus === "Problem sample").length;
 
   el.innerHTML = `
     There are <strong>${rows.length}</strong> current OTL row(s) in this view.
-    <strong>${overdue}</strong> are outside TAT,
+    <strong>${outsideTat}</strong> are outside TAT,
     <strong>${near}</strong> are near breach and
-    <strong>${over24}</strong> are older than 24 hours.
+    <strong>${over24}</strong> have a TAT greater than 24 hours.
     <br><br>
     <strong>${freezer}</strong> row(s) are freezer-check OTLs.
-    <strong>${problem}</strong> item(s) are currently marked as problem samples.
+    <strong>${problem}</strong> item(s) are marked as problem samples.
     <br><br>
-    The oldest item is <strong>${escapeHTML(worst.test)}</strong>
+    The longest TAT item is <strong>${escapeHTML(worst.test)}</strong>
     from <strong>${escapeHTML(worst.location)}</strong>,
-    registered <strong>${formatHours(worst.ageHours)}</strong> ago.
+    registered <strong>${formatTat(worst.currentTatHours)}</strong> ago.
     It is classified as <strong>${escapeHTML(worst.otlCategory)}</strong>
     and is currently <strong>${escapeHTML(worst.tatText)}</strong>.
   `;
@@ -826,8 +808,8 @@ function renderDashboard() {
 
   setMetric("rowsMetric", rows.length.toLocaleString());
   setMetric("episodesMetric", new Set(rows.map(r => r.visitNumber)).size.toLocaleString());
-  setMetric("medianAgeMetric", formatHours(median(rows.map(r => r.ageHours))));
-  setMetric("over24Metric", rows.filter(r => r.ageHours >= 24).length.toLocaleString());
+  setMetric("medianAgeMetric", formatTat(median(rows.map(r => r.currentTatHours))));
+  setMetric("over24Metric", rows.filter(r => r.currentTatHours >= 24).length.toLocaleString());
   setMetric("locatedMetric", rows.filter(r => ["Located in lab", "With section", "Resolved", "Sample in fridge", "Sample in freezer"].includes(r.techStatus)).length.toLocaleString());
   setMetric("notLocatedMetric", rows.filter(r => r.techStatus === "Not located").length.toLocaleString());
   setMetric("problemMetric", rows.filter(r => r.techStatus === "Problem sample").length.toLocaleString());
@@ -858,8 +840,8 @@ function exportOTLWithComments() {
     "Test": r.test,
     "Specimen Type": r.specimenType,
     "Registration / TAT Start": r.tatStartDisplay,
-    "TAT Hours": r.ageHours.toFixed(2),
-    "TAT Target": r.targetHours,
+    "Current TAT Hours": r.currentTatHours.toFixed(2),
+    "TAT Target": r.targetTatHours,
     "TAT Status": r.tatLabel,
     "TAT Comment": r.tatText,
     "Referral Status": r.referralStatus,
@@ -892,8 +874,8 @@ function exportOTLWithComments() {
       "Location": r.location,
       "Test": r.test,
       "Registration / TAT Start": r.tatStartDisplay,
-      "TAT Hours": r.ageHours.toFixed(2),
-      "TAT Target": r.targetHours,
+      "Current TAT Hours": r.currentTatHours.toFixed(2),
+      "TAT Target": r.targetTatHours,
       "TAT Status": r.tatLabel,
       "TAT Comment": r.tatText,
       "Referral Status": r.referralStatus,
@@ -902,9 +884,7 @@ function exportOTLWithComments() {
       "Tech Comment": r.comment
     }));
 
-    const safeName = category
-      .replace(/[\\/?*[\]:]/g, "")
-      .slice(0, 31);
+    const safeName = category.replace(/[\\/?*[\]:]/g, "").slice(0, 31);
 
     XLSX.utils.book_append_sheet(
       workbook,
@@ -922,11 +902,11 @@ function exportOTLWithComments() {
 function toCSV(rows) {
   const headers = [
     "otl_category",
-    "tat_hours",
+    "current_tat_hours",
     "tat_target",
     "tat_status",
     "tat_text",
-    "tat_bucket",
+    "tat_category",
     "visit_number",
     "patient_name",
     "hospital",
@@ -952,8 +932,8 @@ function toCSV(rows) {
   rows.forEach(r => {
     const values = [
       r.otlCategory,
-      r.ageHours.toFixed(2),
-      r.targetHours,
+      r.currentTatHours.toFixed(2),
+      r.targetTatHours,
       r.tatLabel,
       r.tatText,
       r.tatCategory,
@@ -1061,6 +1041,8 @@ document.getElementById("exportViewBtn").addEventListener("click", () => {
   "episodeTextFilter"
 ].forEach(id => {
   const el = document.getElementById(id);
+
+  if (!el) return;
 
   el.addEventListener("change", applyFilters);
 
