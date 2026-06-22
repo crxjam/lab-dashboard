@@ -721,17 +721,50 @@ function updateSummaryTable(rows) {
     const g = rows.filter(r => r.otlCategory === group);
     const tr = document.createElement("tr");
 
-    const values = [
-      group,
-      g.length,
-      ...TAT_CATEGORIES.map(b => g.filter(r => r.tatCategory === b).length),
-      g.filter(r => ["Located in lab", "With section", "Resolved", "Sample in fridge", "Sample in freezer"].includes(r.techStatus)).length,
-      g.filter(r => r.techStatus === "Issue / follow-up").length
+    const cells = [
+      { label: group, rows: g, clickable: false },
+      { label: g.length, rows: g, clickable: true },
+      ...TAT_CATEGORIES.map(b => ({
+        label: g.filter(r => r.tatCategory === b).length,
+        rows: g.filter(r => r.tatCategory === b),
+        clickable: true
+      })),
+      {
+        label: g.filter(r => ["Located in lab", "With section", "Resolved", "Sample in fridge", "Sample in freezer"].includes(r.techStatus)).length,
+        rows: g.filter(r => ["Located in lab", "With section", "Resolved", "Sample in fridge", "Sample in freezer"].includes(r.techStatus)),
+        clickable: true
+      },
+      {
+        label: g.filter(r => r.techStatus === "Issue / follow-up").length,
+        rows: g.filter(r => r.techStatus === "Issue / follow-up"),
+        clickable: true
+      }
     ];
 
-    values.forEach(v => {
+    cells.forEach(cell => {
       const td = document.createElement("td");
-      td.textContent = v;
+
+      if (cell.clickable && cell.rows.length > 0) {
+        td.textContent = cell.label;
+        td.classList.add("summary-click");
+
+        td.title = cell.rows
+          .map(r => `${r.visitNumber} | ${r.ward} | ${r.test}`)
+          .join("\n");
+
+        td.addEventListener("click", () => {
+          filteredRows = [...cell.rows];
+          renderDashboard();
+
+          document.querySelector("#otlTable").scrollIntoView({
+            behavior: "smooth",
+            block: "start"
+          });
+        });
+      } else {
+        td.textContent = cell.label;
+      }
+
       tr.appendChild(td);
     });
 
@@ -765,6 +798,14 @@ function renderTable(rows) {
   sorted.forEach(row => {
     const tr = document.createElement("tr");
     tr.dataset.sampleKey = row.sampleKey;
+    
+    if (row.outsideTat) {
+      tr.classList.add("tat-bad");
+    } else if (row.tatLabel === "Near breach") {
+      tr.classList.add("tat-warn");
+    } else {
+      tr.classList.add("tat-ok");
+    }
 
     const statusOptions = STATUS_OPTIONS.map(s =>
       `<option value="${escapeHTML(s)}" ${s === row.techStatus ? "selected" : ""}>${escapeHTML(s)}</option>`
