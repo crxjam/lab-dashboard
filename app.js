@@ -17,7 +17,7 @@ const STATUS_OPTIONS = [
   "Resolved"
 ];
 
-const AGE_BUCKETS = [
+const TAT_BUCKETS = [
   "<2 h",
   "2-4 h",
   "4-8 h",
@@ -252,7 +252,7 @@ function median(arr) {
   return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
 }
 
-function assignAgeBucket(hours) {
+function assignTatCategory(hours) {
   if (hours < 2) return "<2 h";
   if (hours < 4) return "2-4 h";
   if (hours < 8) return "4-8 h";
@@ -501,7 +501,7 @@ async function prepareRows(rows, sourceFile) {
       tatStart,
       tatStartDisplay: tatStart.toLocaleString(),
       ageHours,
-      ageBucket: assignAgeBucket(ageHours),
+      tatCategory: assignTatCategory(ageHours),
       otlCategory: otlRule.category,
       printFrequency: otlRule.printFrequency,
       reviewFrequency: otlRule.reviewFrequency,
@@ -559,7 +559,7 @@ function applyFilters() {
 
   filteredRows = currentRows.filter(r =>
     (!wardGroup || r.wardGroup === wardGroup) &&
-    (!age || r.ageBucket === age) &&
+    (!age || r.tatCategory === age) &&
     (!status || r.techStatus === status) &&
     safeContains(r.location, wardText) &&
     safeContains(r.test, testText) &&
@@ -583,8 +583,8 @@ function updateCharts(rows) {
   const wardCounts = groupCount(rows, "otlCategory");
 
   const ageCounts = {};
-  AGE_BUCKETS.forEach(b => {
-    ageCounts[b] = rows.filter(r => r.ageBucket === b).length;
+  TAT_BUCKETS.forEach(b => {
+    ageCounts[b] = rows.filter(r => r.tatCategory === b).length;
   });
 
   const wardCanvas = document.getElementById("wardChart");
@@ -653,7 +653,7 @@ function updateSummaryTable(rows) {
     const values = [
       group,
       g.length,
-      ...AGE_BUCKETS.map(b => g.filter(r => r.ageBucket === b).length),
+      ...TAT_BUCKETS.map(b => g.filter(r => r.tatCategory === b).length),
       g.filter(r => ["Located in lab", "With section", "Resolved", "Sample in fridge", "Sample in freezer"].includes(r.techStatus)).length,
       g.filter(r => r.techStatus === "Problem sample").length
     ];
@@ -858,7 +858,7 @@ function exportOTLWithComments() {
     "Test": r.test,
     "Specimen Type": r.specimenType,
     "Registration / TAT Start": r.tatStartDisplay,
-    "Age Hours": r.ageHours.toFixed(2),
+    "TAT Hours": r.ageHours.toFixed(2),
     "TAT Target": r.targetHours,
     "TAT Status": r.tatLabel,
     "TAT Comment": r.tatText,
@@ -892,7 +892,7 @@ function exportOTLWithComments() {
       "Location": r.location,
       "Test": r.test,
       "Registration / TAT Start": r.tatStartDisplay,
-      "Age Hours": r.ageHours.toFixed(2),
+      "TAT Hours": r.ageHours.toFixed(2),
       "TAT Target": r.targetHours,
       "TAT Status": r.tatLabel,
       "TAT Comment": r.tatText,
@@ -922,11 +922,11 @@ function exportOTLWithComments() {
 function toCSV(rows) {
   const headers = [
     "otl_category",
-    "age_hours",
+    "tat_hours",
     "tat_target",
     "tat_status",
     "tat_text",
-    "age_bucket",
+    "tat_bucket",
     "visit_number",
     "patient_name",
     "hospital",
@@ -956,7 +956,7 @@ function toCSV(rows) {
       r.targetHours,
       r.tatLabel,
       r.tatText,
-      r.ageBucket,
+      r.tatCategory,
       r.visitNumber,
       r.patientName,
       r.hospital,
