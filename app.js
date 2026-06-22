@@ -2,6 +2,8 @@ let currentRows = [];
 let filteredRows = [];
 let wardChart = null;
 let tatChart = null;
+let wardPieChart = null;
+let testPieChart = null;
 
 const STATUS_OPTIONS = [
   "Not located",
@@ -568,6 +570,9 @@ function updateCharts(rows) {
     tatCounts[b] = rows.filter(r => r.tatCategory === b).length;
   });
 
+  const wardCounts = groupCount(rows, "ward");
+  const testCounts = groupCount(rows, "test");
+
   const wardCanvas = document.getElementById("wardChart");
 
   if (wardCanvas) {
@@ -616,6 +621,60 @@ function updateCharts(rows) {
         scales: {
           y: {
             beginAtZero: true
+          }
+        }
+      }
+    });
+  }
+
+  const wardPieCanvas = document.getElementById("wardPieChart");
+
+  if (wardPieCanvas) {
+    const ctx = wardPieCanvas.getContext("2d");
+
+    if (wardPieChart) wardPieChart.destroy();
+
+    wardPieChart = new Chart(ctx, {
+      type: "pie",
+      data: {
+        labels: Object.keys(wardCounts),
+        datasets: [{
+          label: "Ward distribution",
+          data: Object.values(wardCounts)
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: {
+            position: "bottom"
+          }
+        }
+      }
+    });
+  }
+
+  const testPieCanvas = document.getElementById("testPieChart");
+
+  if (testPieCanvas) {
+    const ctx = testPieCanvas.getContext("2d");
+
+    if (testPieChart) testPieChart.destroy();
+
+    testPieChart = new Chart(ctx, {
+      type: "pie",
+      data: {
+        labels: Object.keys(testCounts),
+        datasets: [{
+          label: "Outstanding test distribution",
+          data: Object.values(testCounts)
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: {
+            position: "bottom"
           }
         }
       }
