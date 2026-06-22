@@ -11,7 +11,7 @@ const STATUS_OPTIONS = [
   "Sample in freezer",
   "Awaiting aliquot",
   "Awaiting analyser",
-  "Problem sample",
+  "Issue / follow-up",
   "Resolved"
 ];
 
@@ -393,6 +393,35 @@ function saveComment(sampleKey, payload) {
   localStorage.setItem("otlComments", JSON.stringify(comments));
 }
 
+function formatDateTime24(date) {
+  if (!date || isNaN(date)) return "-";
+
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  const hh = String(date.getHours()).padStart(2, "0");
+  const min = String(date.getMinutes()).padStart(2, "0");
+
+  return `${yyyy}-${mm}-${dd} ${hh}:${min}`;
+}
+
+function deriveWardFromLocationAndEpisode(location, visitNumber) {
+  const loc = String(location || "").trim();
+  const episode = String(visitNumber || "").trim().toUpperCase();
+
+  if (!episode.startsWith("SA")) {
+    return episode.slice(0, 2);
+  }
+
+  const parts = loc.split(/\s+/);
+
+  if (parts.length >= 2) {
+    return parts.slice(1).join(" ");
+  }
+
+  return loc;
+}
+
 async function prepareRows(rows, sourceFile) {
   const comments = getSavedComments();
   const prepared = [];
@@ -440,14 +469,14 @@ async function prepareRows(rows, sourceFile) {
       patientName: String(patientName || "").trim(),
       hospital: String(hospital || "").trim(),
       location: String(location || "").trim(),
-      wardGroup,
+      wardGroup: deriveWardFromLocationAndEpisode(location, visitNumber),
       test: String(test || "").trim(),
       specimenType: String(specimenType || "").trim(),
       collectionDate,
       registrationDate,
       inLabDate,
       tatStart,
-      tatStartDisplay: tatStart.toLocaleString(),
+      tatStartDisplay: formatDateTime24(tatStart),
       currentTatHours,
       tatCategory: assignTatCategory(currentTatHours),
       otlCategory: otlRule.category,
@@ -612,7 +641,7 @@ function updateSummaryTable(rows) {
       g.length,
       ...TAT_CATEGORIES.map(b => g.filter(r => r.tatCategory === b).length),
       g.filter(r => ["Located in lab", "With section", "Resolved", "Sample in fridge", "Sample in freezer"].includes(r.techStatus)).length,
-      g.filter(r => r.techStatus === "Problem sample").length
+      g.filter(r => r.techStatus === "Issue / follow-up").length
     ];
 
     values.forEach(v => {
@@ -713,19 +742,30 @@ function renderTable(rows) {
     tbody.appendChild(tr);
   });
 
-  document.querySelectorAll(".save-row-btn").forEach(btn => {
-    btn.addEventListener("click", event => {
-      const tr = event.target.closest("tr");
+  document.querySelectorAll("#otlTable tbody tr").forEach(tr => {
+  const statusEl = tr.querySelector(".row-status");
+  const commentEl = tr.querySelector(".row-comment");
+
+  let saveTimer = null;
+
+  function autoSave() {
+    clearTimeout(saveTimer);
+
+    saveTimer = setTimeout(() => {
       saveRowComment(
         tr.dataset.sampleKey,
-        tr.querySelector(".row-status").value,
-        tr.querySelector(".row-comment").value
+        statusEl.value,
+        commentEl.value,
+        false
       );
-    });
-  });
-}
+    }, 600);
+  }
 
-function saveRowComment(sampleKey, techStatus, comment) {
+  statusEl.addEventListener("change", autoSave);
+  commentEl.addEventListener("input", autoSave);
+});
+
+function saveRowComment(sampleKey, techStatus, comment, rerender = true) {
   const payload = {
     techStatus,
     comment,
@@ -740,7 +780,7 @@ function saveRowComment(sampleKey, techStatus, comment) {
       : r
   );
 
-  applyFilters();
+  if (rerender) applyFilters();
 }
 
 function updateInterpretation(rows) {
@@ -759,7 +799,7 @@ function updateInterpretation(rows) {
   const near = rows.filter(r => r.tatLabel === "Near breach").length;
   const over24 = rows.filter(r => r.currentTatHours >= 24).length;
   const freezer = rows.filter(r => r.freezerCheck).length;
-  const problem = rows.filter(r => r.techStatus === "Problem sample").length;
+  const problem = rows.filter(r => r.techStatus === "Issue / follow-up").length;
 
   el.innerHTML = `
     There are <strong>${rows.length}</strong> current OTL row(s) in this view.
@@ -787,7 +827,7 @@ function renderDashboard() {
   setMetric("over24Metric", rows.filter(r => r.currentTatHours >= 24).length.toLocaleString());
   setMetric("locatedMetric", rows.filter(r => ["Located in lab", "With section", "Resolved", "Sample in fridge", "Sample in freezer"].includes(r.techStatus)).length.toLocaleString());
   setMetric("notLocatedMetric", rows.filter(r => r.techStatus === "Not located").length.toLocaleString());
-  setMetric("problemMetric", rows.filter(r => r.techStatus === "Problem sample").length.toLocaleString());
+  setMetric("problemMetric", rows.filter(r => r.techStatus === "Issue / follow-up").length.toLocaleString());
 
   const last = localStorage.getItem("otlLastExtractTime");
   setMetric("extractTimeMetric", last ? new Date(last).toLocaleString() : "-");
