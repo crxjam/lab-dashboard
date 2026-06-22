@@ -1,12 +1,128 @@
-let rawRows = [];
+let currentRows = [];
 let filteredRows = [];
-let cdfChart = null;
-let stageChart = null;
-let metricChart = null;
+let wardChart = null;
+let ageChart = null;
+
+/*
+  MULTIPLE PC SETUP
+
+  For now this works locally in the browser.
+  For multiple PCs, replace BACKEND_URL with your shared API endpoint later.
+
+  Example later:
+  const BACKEND_URL = "https://your-lab-server/otl-api";
+
+  Required backend routes later:
+  GET  /comments
+  POST /comments
+  POST /tat-snapshot
+*/
+const BACKEND_URL = "";
+
+const STATUS_OPTIONS = [
+  "Not located",
+  "Located in lab",
+  "With section",
+  "Awaiting aliquot",
+  "Awaiting analyser",
+  "Problem sample",
+  "Resolved"
+];
+
+const AGE_BUCKETS = [
+  "<2 h",
+  "2-4 h",
+  "4-8 h",
+  "8-24 h",
+  ">24 h"
+];
+
+/*
+  Ward-specific TAT rules.
+  We will edit this when you give the final ward list.
+
+  Current default:
+  Emergency/ICU = 8 h
+  Everything else = 12 h
+*/
+const WARD_TAT_RULES = {
+  "Emergency": 8,
+  "ICU / High Care": 8,
+  "Medical wards": 12,
+  "Surgical wards": 12,
+  "Outpatients": 12,
+  "Other": 12
+};
+
+const WARD_GROUPS = {
+  "Emergency": [" EC", "EC--", "EMERGENCY", "CASUALTY", "TRAUMA"],
+  "ICU / High Care": ["ICU", "HCU", "HIGH CARE", "CCU", "NICU", "PICU"],
+  "Medical wards": ["MED", "MEDICAL", "MOPD", "G13", "G14", "C13", "C14"],
+  "Surgical wards": ["SURG", "SURGICAL", "ORTHO", "UROLOGY", "ENT"],
+  "Outpatients": ["OPD", "CLINIC", "OUTPATIENT", "MOPD"],
+  "Other": []
+};
+
+/*
+  Exact OTL columns seen in your files:
+  Visit Number
+  Patient Name
+  Location
+  Tests
+  Specimen Type
+  Collection Date
+  Registration Date
+  In Lab Date
+  Storage Positions
+  Referral Status
+  Alternative Reference
+  Internal Reference
+*/
+const COLUMN_ALIASES = {
+  visitNumber: ["Visit Number", "Episode Number", "Episode", "Lab Number", "Accession Number"],
+  patientName: ["Patient Name", "Patient"],
+  location: ["Location", "Ward", "Source"],
+  tests: ["Tests", "Test", "Test Set Description", "Test Item Description", "Analyte"],
+  specimenType: ["Specimen Type", "Specimen"],
+  collectionDate: ["Collection Date", "Collected Date", "Collection Date Time"],
+  registrationDate: ["Registration Date", "Registered Date", "Registration Date Time"],
+  inLabDate: ["In Lab Date", "In-Lab Date", "Received Date", "Lab Received Date"],
+  storagePositions: ["Storage Positions", "Storage Position", "Storage"],
+  referralStatus: ["Referral Status", "Status", "Current Status"],
+  alternativeReference: ["Alternative Reference"],
+  internalReference: ["Internal Reference"],
+  hospital: ["Hospital", "Facility"]
+};
+
+function splitCSVLine(line) {
+  const out = [];
+  let current = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+
+    if (ch === '"' && line[i + 1] === '"') {
+      current += '"';
+      i++;
+    } else if (ch === '"') {
+      inQuotes = !inQuotes;
+    } else if (ch === "," && !inQuotes) {
+      out.push(current);
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+
+  out.push(current);
+  return out;
+}
 
 function parseCSV(text) {
   const lines = text.trim().split(/\r?\n/);
-  const headers = splitCSVLine(lines[0]);
+  const headers = splitCSVLine(lines[0]).map(h => h.trim());
+
   return lines.slice(1).filter(Boolean).map(line => {
     const values = splitCSVLine(line);
     const obj = {};
@@ -14,384 +130,775 @@ function parseCSV(text) {
     return obj;
   });
 }
-function splitCSVLine(line) {
-  const out = [];
-  let current = "";
-  let inQuotes = false;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
-    if (ch === '"' && line[i + 1] === '"') { current += '"'; i++; }
-    else if (ch === '"') { inQuotes = !inQuotes; }
-    else if (ch === ',' && !inQuotes) { out.push(current); current = ""; }
-    else { current += ch; }
+
+async function readFile(file) {
+  const name = file.name.toLowerCase();
+
+  if (name.endsWith(".csv")) {
+    return parseCSV(await file.text());
   }
-  out.push(current);
-  return out;
+
+  const buffer = await file.arrayBuffer();
+  const workbook = XLSX.read(buffer, {
+    type: "array",
+    cellDates: true
+  });
+
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+
+  return XLSX.utils.sheet_to_json(sheet, {
+    defval: "",
+    raw: false
+  });
 }
+
+function normaliseName(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[_/()-]/g, " ")
+    .replace(/\s+/g, " ");
+}
+
+function getValue(row, aliasList) {
+  const keyMap = {};
+
+  Object.keys(row).forEach(k => {
+    keyMap[normaliseName(k)] = k;
+  });
+
+  for (const alias of aliasList) {
+    const actual = keyMap[normaliseName(alias)];
+    if (actual !== undefined) return row[actual];
+  }
+
+  return "";
+}
+
 function parseDate(value) {
   if (!value) return null;
-  const d = new Date(value);
-  return isNaN(d) ? null : d;
+
+  if (value instanceof Date && !isNaN(value)) return value;
+
+  if (typeof value === "number") {
+    const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+    return new Date(excelEpoch.getTime() + value * 86400000);
+  }
+
+  const text = String(value).trim();
+  if (!text) return null;
+
+  let d = new Date(text);
+  if (!isNaN(d)) return d;
+
+  const m = text.match(
+    /^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/
+  );
+
+  if (m) {
+    const day = Number(m[1]);
+    const month = Number(m[2]) - 1;
+    const year = Number(m[3].length === 2 ? "20" + m[3] : m[3]);
+    const hour = Number(m[4] || 0);
+    const minute = Number(m[5] || 0);
+    const second = Number(m[6] || 0);
+
+    d = new Date(year, month, day, hour, minute, second);
+    if (!isNaN(d)) return d;
+  }
+
+  return null;
 }
-function numMinutes(ms) { return ms / 60000; }
-function median(arr) {
-  if (!arr.length) return null;
-  const s = [...arr].sort((a, b) => a - b);
-  const m = Math.floor(s.length / 2);
-  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+
+function hoursSince(date) {
+  return (new Date() - date) / 3600000;
 }
-function quantile(arr, q) {
-  if (!arr.length) return null;
-  const s = [...arr].sort((a, b) => a - b);
-  const pos = (s.length - 1) * q;
-  const base = Math.floor(pos);
-  const rest = pos - base;
-  return s[base + 1] !== undefined ? s[base] + rest * (s[base + 1] - s[base]) : s[base];
-}
-function mean(arr) {
-  return arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null;
-}
-function formatDuration(minutes) {
-  if (minutes == null || !Number.isFinite(minutes)) return "-";
-  const rounded = Math.round(minutes);
-  const h = Math.floor(rounded / 60);
-  const m = rounded % 60;
-  if (h === 0) return `${m} min`;
+
+function formatHours(hours) {
+  if (hours == null || !Number.isFinite(hours)) return "-";
+
+  if (hours < 1) return `${Math.round(hours * 60)} min`;
+
+  const h = Math.floor(hours);
+  const m = Math.round((hours - h) * 60);
+
+  if (m === 60) return `${h + 1} h`;
   if (m === 0) return `${h} h`;
+
   return `${h} h ${m} min`;
 }
-function formatPct(value) {
-  if (value == null || !Number.isFinite(value)) return "-";
-  return `${value.toFixed(1)}%`;
+
+function median(arr) {
+  if (!arr.length) return null;
+
+  const s = [...arr].sort((a, b) => a - b);
+  const mid = Math.floor(s.length / 2);
+
+  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
 }
-function setMetric(id, value) {
-  document.getElementById(id).textContent = value;
+
+function assignAgeBucket(hours) {
+  if (hours < 2) return "<2 h";
+  if (hours < 4) return "2-4 h";
+  if (hours < 8) return "4-8 h";
+  if (hours < 24) return "8-24 h";
+  return ">24 h";
 }
-function toHours(minutes) {
-  return minutes / 60;
+
+function assignWardGroup(location) {
+  const loc = ` ${String(location || "").toUpperCase()} `;
+
+  for (const [group, keys] of Object.entries(WARD_GROUPS)) {
+    if (group === "Other") continue;
+    if (keys.some(k => loc.includes(k.toUpperCase()))) return group;
+  }
+
+  return "Other";
 }
+
+function getTatTargetHours(wardGroup) {
+  return WARD_TAT_RULES[wardGroup] ?? WARD_TAT_RULES["Other"] ?? 12;
+}
+
+function getTatStatus(ageHours, targetHours) {
+  const diff = targetHours - ageHours;
+
+  if (diff >= 2) {
+    return {
+      label: "Within TAT",
+      overdue: false,
+      text: `${formatHours(diff)} remaining`
+    };
+  }
+
+  if (diff >= 0) {
+    return {
+      label: "Near breach",
+      overdue: false,
+      text: `${formatHours(diff)} remaining`
+    };
+  }
+
+  return {
+    label: "Overdue",
+    overdue: true,
+    text: `${formatHours(Math.abs(diff))} overdue`
+  };
+}
+
+function makeSampleKey(visitNumber, test, collectionDate) {
+  const datePart = collectionDate
+    ? collectionDate.toISOString().slice(0, 10)
+    : "";
+
+  return [
+    String(visitNumber || "").trim().toUpperCase(),
+    String(test || "").trim().toUpperCase(),
+    datePart
+  ].join("||");
+}
+
+function escapeHTML(value) {
+  return String(value ?? "").replace(/[&<>"']/g, ch => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#039;"
+  }[ch]));
+}
+
+async function getSavedComments() {
+  if (BACKEND_URL) {
+    try {
+      const response = await fetch(`${BACKEND_URL}/comments`);
+      if (response.ok) return await response.json();
+    } catch (e) {
+      console.warn("Backend comments failed, falling back to localStorage", e);
+    }
+  }
+
+  try {
+    return JSON.parse(localStorage.getItem("otlComments") || "{}");
+  } catch {
+    return {};
+  }
+}
+
+async function saveComment(sampleKey, payload) {
+  if (BACKEND_URL) {
+    try {
+      await fetch(`${BACKEND_URL}/comments`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          sampleKey,
+          ...payload
+        })
+      });
+      return;
+    } catch (e) {
+      console.warn("Backend save failed, falling back to localStorage", e);
+    }
+  }
+
+  const comments = JSON.parse(localStorage.getItem("otlComments") || "{}");
+  comments[sampleKey] = payload;
+  localStorage.setItem("otlComments", JSON.stringify(comments));
+}
+
+async function saveTatSnapshot(rows) {
+  const extractTime = new Date().toISOString();
+
+  const snapshot = {
+    extractTime,
+    count: rows.length,
+    rows: rows.map(r => ({
+      sampleKey: r.sampleKey,
+      visitNumber: r.visitNumber,
+      patientName: r.patientName,
+      location: r.location,
+      wardGroup: r.wardGroup,
+      test: r.test,
+      ageHours: Number(r.ageHours.toFixed(2)),
+      targetHours: r.targetHours,
+      tatLabel: r.tatLabel,
+      techStatus: r.techStatus
+    }))
+  };
+
+  if (BACKEND_URL) {
+    try {
+      await fetch(`${BACKEND_URL}/tat-snapshot`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(snapshot)
+      });
+    } catch (e) {
+      console.warn("Backend TAT snapshot failed", e);
+    }
+  }
+
+  const history = JSON.parse(localStorage.getItem("otlTatHistory") || "[]");
+  history.push(snapshot);
+  localStorage.setItem("otlTatHistory", JSON.stringify(history.slice(-50)));
+  localStorage.setItem("otlLastExtractTime", extractTime);
+}
+
+async function prepareRows(rows, sourceFile) {
+  const comments = await getSavedComments();
+
+  return rows.map(row => {
+    const visitNumber = getValue(row, COLUMN_ALIASES.visitNumber);
+    const patientName = getValue(row, COLUMN_ALIASES.patientName);
+    const location = getValue(row, COLUMN_ALIASES.location);
+    const test = getValue(row, COLUMN_ALIASES.tests);
+    const specimenType = getValue(row, COLUMN_ALIASES.specimenType);
+    const collectionDate = parseDate(getValue(row, COLUMN_ALIASES.collectionDate));
+    const registrationDate = parseDate(getValue(row, COLUMN_ALIASES.registrationDate));
+    const inLabDate = parseDate(getValue(row, COLUMN_ALIASES.inLabDate));
+    const storagePositions = getValue(row, COLUMN_ALIASES.storagePositions);
+    const referralStatus = getValue(row, COLUMN_ALIASES.referralStatus);
+    const alternativeReference = getValue(row, COLUMN_ALIASES.alternativeReference);
+    const internalReference = getValue(row, COLUMN_ALIASES.internalReference);
+    const hospital = getValue(row, COLUMN_ALIASES.hospital);
+
+    const tatStart = inLabDate || registrationDate || collectionDate;
+
+    if (!visitNumber || !location || !test || !tatStart) return null;
+
+    const ageHours = hoursSince(tatStart);
+    if (!Number.isFinite(ageHours) || ageHours < 0 || ageHours > 24 * 90) return null;
+
+    const wardGroup = assignWardGroup(location);
+    const targetHours = getTatTargetHours(wardGroup);
+    const tatStatus = getTatStatus(ageHours, targetHours);
+
+    const sampleKey = makeSampleKey(visitNumber, test, collectionDate || registrationDate || inLabDate);
+    const saved = comments[sampleKey] || {};
+
+    return {
+      sampleKey,
+      visitNumber: String(visitNumber || "").trim(),
+      patientName: String(patientName || "").trim(),
+      hospital: String(hospital || "").trim(),
+      location: String(location || "").trim(),
+      wardGroup,
+      test: String(test || "").trim(),
+      specimenType: String(specimenType || "").trim(),
+      collectionDate,
+      registrationDate,
+      inLabDate,
+      tatStart,
+      tatStartDisplay: tatStart.toLocaleString(),
+      ageHours,
+      ageBucket: assignAgeBucket(ageHours),
+      targetHours,
+      tatLabel: tatStatus.label,
+      tatText: tatStatus.text,
+      overdue: tatStatus.overdue,
+      storagePositions: String(storagePositions || "").trim(),
+      referralStatus: String(referralStatus || "").trim(),
+      alternativeReference: String(alternativeReference || "").trim(),
+      internalReference: String(internalReference || "").trim(),
+      sourceFile,
+      techStatus: saved.techStatus || "Not located",
+      comment: saved.comment || "",
+      commentUpdatedAt: saved.updatedAt || ""
+    };
+  }).filter(Boolean);
+}
+
 function safeContains(value, query) {
   if (!query) return true;
   return String(value || "").toLowerCase().includes(query.toLowerCase());
 }
 
-function prepareRows(rows) {
-  return rows.map(r => {
-    const prefix = ((r["Episode Number"] || "").match(/^([A-Z]+)/) || [null, ""])[1];
-    const collection = parseDate(`${r["Collection Date"] || ""} ${r["Collection Time"] || ""}`);
-    const registration = parseDate(`${r["Registration Date"] || ""} ${r["Registration Time"] || ""}`);
-    const authorised = parseDate(`${r["Authorised Date"] || ""} ${r["Authorised Time"] || ""}`);
-    if (!collection || !registration || !authorised) return null;
-    const totalTat = numMinutes(authorised - collection);
-    const pre = numMinutes(registration - collection);
-    const inSystem = numMinutes(authorised - registration);
-    if (![totalTat, pre, inSystem].every(v => Number.isFinite(v))) return null;
-    if (totalTat < 0 || totalTat > 60 * 24 * 14) return null;
-    if (pre < 0 || inSystem < 0) return null;
-
-    return {
-      episode: r["Episode Number"],
-      prefix,
-      hospital: r["Hospital"],
-      ward: r["Ward"],
-      test: r["Test Set Description"] || r["Test Item Description"] || "Unknown",
-      totalTat,
-      pre,
-      inSystem
-    };
-  }).filter(Boolean);
+function setMetric(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = value;
 }
 
-function populateTestSelect(rows) {
-  const select = document.getElementById("testSelect");
-  const tests = [...new Set(rows.filter(r => r.prefix === "SA").map(r => r.test))].sort((a, b) => a.localeCompare(b));
-  select.innerHTML = "";
-  tests.forEach(test => {
+function populateWardFilter() {
+  const select = document.getElementById("wardGroupFilter");
+  const current = select.value;
+  const groups = [...new Set(currentRows.map(r => r.wardGroup))].sort();
+
+  select.innerHTML = '<option value="">All Ward Sections</option>';
+
+  groups.forEach(group => {
     const opt = document.createElement("option");
-    opt.value = test;
-    opt.textContent = test;
+    opt.value = group;
+    opt.textContent = group;
     select.appendChild(opt);
   });
+
+  if (groups.includes(current)) select.value = current;
 }
 
 function applyFilters() {
-  const test = document.getElementById("testSelect").value;
-  const ward = document.getElementById("wardFilter").value.trim();
-  const hospital = document.getElementById("hospitalFilter").value.trim();
+  const wardGroup = document.getElementById("wardGroupFilter").value;
+  const age = document.getElementById("ageFilter").value;
+  const status = document.getElementById("statusFilter").value;
+  const wardText = document.getElementById("wardTextFilter").value.trim();
+  const testText = document.getElementById("testTextFilter").value.trim();
+  const episodeText = document.getElementById("episodeTextFilter").value.trim();
 
-  filteredRows = rawRows.filter(r =>
-    r.prefix === "SA" &&
-    r.test === test &&
-    safeContains(r.ward, ward) &&
-    safeContains(r.hospital, hospital)
+  filteredRows = currentRows.filter(r =>
+    (!wardGroup || r.wardGroup === wardGroup) &&
+    (!age || r.ageBucket === age) &&
+    (!status || r.techStatus === status) &&
+    safeContains(r.location, wardText) &&
+    safeContains(r.test, testText) &&
+    safeContains(r.visitNumber, episodeText)
   );
-  runModel();
+
+  renderDashboard();
 }
 
-function scenarioTatRows(rows) {
-  const baselineIntake = Number(document.getElementById("baselineIntakeStaff").value);
-  const baselineProcessing = Number(document.getElementById("baselineProcessingStaff").value);
-  const baselineAuth = Number(document.getElementById("baselineAuthStaff").value);
-
-  const scenarioIntake = Number(document.getElementById("intakeStaff").value);
-  const scenarioProcessing = Number(document.getElementById("processingStaff").value);
-  const scenarioAuth = Number(document.getElementById("authStaff").value);
-
-  const volumeMultiplier = Number(document.getElementById("volumeMultiplier").value);
-  const extraDelay = Number(document.getElementById("extraDelay").value);
-
-  const intakeFactor = Math.pow((volumeMultiplier * baselineIntake) / scenarioIntake, 1.15);
-  const processingFactor = Math.pow((volumeMultiplier * baselineProcessing) / scenarioProcessing, 1.35);
-  const authFactor = Math.pow((volumeMultiplier * baselineAuth) / scenarioAuth, 1.10);
-
-  return rows.map(r => {
-    const preBase = r.pre;
-    const processBase = r.inSystem * 0.85;
-    const authBase = r.inSystem * 0.15;
-
-    const preScenario = Math.max(0, preBase + extraDelay) * Math.max(1, intakeFactor);
-    const processScenario = processBase * Math.max(1, processingFactor);
-    const authScenario = authBase * Math.max(1, authFactor);
-
-    return {
-      baselineTat: r.totalTat,
-      scenarioTat: preScenario + processScenario + authScenario,
-      baselinePre: preBase,
-      scenarioPre: preScenario,
-      baselineProcess: processBase,
-      scenarioProcess: processScenario,
-      baselineAuth: authBase,
-      scenarioAuth: authScenario
-    };
+function groupCount(rows, field) {
+  const counts = {};
+  rows.forEach(r => {
+    counts[r[field]] = (counts[r[field]] || 0) + 1;
   });
+  return counts;
 }
 
-function cdfSeries(values) {
-  const sorted = [...values].sort((a, b) => a - b);
-  return {
-    x: sorted.map(v => +(v / 60).toFixed(2)),
-    y: sorted.map((_, i) => +(((i + 1) / sorted.length) * 100).toFixed(1))
-  };
-}
+function updateCharts(rows) {
+  const wardCounts = groupCount(rows, "wardGroup");
 
-function updateCdfChart(baselineValues, scenarioValues) {
-  const base = cdfSeries(baselineValues);
-  const scen = cdfSeries(scenarioValues);
-  const ctx = document.getElementById("cdfChart").getContext("2d");
-  if (cdfChart) cdfChart.destroy();
-  cdfChart = new Chart(ctx, {
-    type: "line",
-    data: {
-      datasets: [
-        {
-          label: "Observed baseline",
-          data: base.x.map((x, i) => ({ x, y: base.y[i] })),
-          borderColor: "rgba(37,99,235,1)",
-          backgroundColor: "rgba(37,99,235,0.15)",
-          pointRadius: 0,
-          tension: 0.08
-        },
-        {
-          label: "Scenario",
-          data: scen.x.map((x, i) => ({ x, y: scen.y[i] })),
-          borderColor: "rgba(244,63,94,1)",
-          backgroundColor: "rgba(244,63,94,0.12)",
-          pointRadius: 0,
-          tension: 0.08
+  const ageCounts = {};
+  AGE_BUCKETS.forEach(b => {
+    ageCounts[b] = rows.filter(r => r.ageBucket === b).length;
+  });
+
+  const wardCanvas = document.getElementById("wardChart");
+  if (wardCanvas) {
+    const wardCtx = wardCanvas.getContext("2d");
+    if (wardChart) wardChart.destroy();
+
+    wardChart = new Chart(wardCtx, {
+      type: "bar",
+      data: {
+        labels: Object.keys(wardCounts),
+        datasets: [{
+          label: "Current OTL rows",
+          data: Object.values(wardCounts)
+        }]
+      },
+      options: {
+        responsive: true,
+        scales: {
+          y: {
+            beginAtZero: true
+          }
         }
-      ]
-    },
-    options: {
-      responsive: true,
-      parsing: false,
-      scales: {
-        x: { type: "linear", title: { display: true, text: "Total TAT (hours)" } },
-        y: { title: { display: true, text: "Results completed (%)" }, min: 0, max: 100 }
       }
-    }
-  });
-}
+    });
+  }
 
-function updateStageChart(stageSummary) {
-  const ctx = document.getElementById("stageChart").getContext("2d");
-  if (stageChart) stageChart.destroy();
-  stageChart = new Chart(ctx, {
-    type: "bar",
-    data: {
-      labels: ["Transport / pre-analytical", "Laboratory processing", "Authorisation"],
-      datasets: [
-        {
-          label: "Observed baseline",
-          data: [stageSummary.baselinePre, stageSummary.baselineProcess, stageSummary.baselineAuth],
-          backgroundColor: "rgba(59,130,246,0.7)"
-        },
-        {
-          label: "Scenario",
-          data: [stageSummary.scenarioPre, stageSummary.scenarioProcess, stageSummary.scenarioAuth],
-          backgroundColor: "rgba(244,63,94,0.6)"
+  const ageCanvas = document.getElementById("ageChart");
+  if (ageCanvas) {
+    const ageCtx = ageCanvas.getContext("2d");
+    if (ageChart) ageChart.destroy();
+
+    ageChart = new Chart(ageCtx, {
+      type: "bar",
+      data: {
+        labels: Object.keys(ageCounts),
+        datasets: [{
+          label: "Current OTL rows",
+          data: Object.values(ageCounts)
+        }]
+      },
+      options: {
+        responsive: true,
+        scales: {
+          y: {
+            beginAtZero: true
+          }
         }
-      ]
-    },
-    options: {
-      responsive: true,
-      scales: { y: { title: { display: true, text: "Minutes" }, beginAtZero: true } }
-    }
-  });
+      }
+    });
+  }
 }
 
-function updateMetricChart(metricSummary) {
-  const ctx = document.getElementById("metricChart").getContext("2d");
-  if (metricChart) metricChart.destroy();
-  metricChart = new Chart(ctx, {
-    type: "bar",
-    data: {
-      labels: ["Median TAT (h)", "90th percentile TAT (h)", "% within target"],
-      datasets: [
-        {
-          label: "Observed baseline",
-          data: [metricSummary.baselineMedianH, metricSummary.baselineP90H, metricSummary.baselineWithin],
-          backgroundColor: "rgba(59,130,246,0.7)"
-        },
-        {
-          label: "Scenario",
-          data: [metricSummary.scenarioMedianH, metricSummary.scenarioP90H, metricSummary.scenarioWithin],
-          backgroundColor: "rgba(244,63,94,0.6)"
-        }
-      ]
-    },
-    options: { responsive: true, scales: { y: { beginAtZero: true } } }
-  });
-}
-
-function updateSummaryTable(summary) {
+function updateSummaryTable(rows) {
   const tbody = document.querySelector("#summaryTable tbody");
   tbody.innerHTML = "";
 
-  const rows = [
-    ["Median total TAT", formatDuration(summary.baselineMedian), formatDuration(summary.scenarioMedian), formatDuration(summary.scenarioMedian - summary.baselineMedian)],
-    ["90th percentile total TAT", formatDuration(summary.baselineP90), formatDuration(summary.scenarioP90), formatDuration(summary.scenarioP90 - summary.baselineP90)],
-    ["% within target", formatPct(summary.baselineWithin), formatPct(summary.scenarioWithin), `${(summary.scenarioWithin - summary.baselineWithin).toFixed(1)} pp`],
-  ];
+  const groups = [...new Set(rows.map(r => r.wardGroup))].sort();
 
-  rows.forEach(r => {
+  groups.forEach(group => {
+    const g = rows.filter(r => r.wardGroup === group);
     const tr = document.createElement("tr");
-    r.forEach(val => {
+
+    const values = [
+      group,
+      g.length,
+      ...AGE_BUCKETS.map(b => g.filter(r => r.ageBucket === b).length),
+      g.filter(r => ["Located in lab", "With section", "Resolved"].includes(r.techStatus)).length,
+      g.filter(r => r.techStatus === "Problem sample").length
+    ];
+
+    values.forEach(v => {
       const td = document.createElement("td");
-      td.textContent = val;
+      td.textContent = v;
       tr.appendChild(td);
     });
+
     tbody.appendChild(tr);
   });
 }
 
-function updateInterpretation(summary, bottleneck, testName) {
-  const el = document.getElementById("interpretationBox");
-  const medianChangePct = summary.baselineMedian > 0 ? ((summary.scenarioMedian / summary.baselineMedian) - 1) * 100 : 0;
-  const p90ChangePct = summary.baselineP90 > 0 ? ((summary.scenarioP90 / summary.baselineP90) - 1) * 100 : 0;
+function ageBadge(row) {
+  let cls = "";
 
-  el.innerHTML = `
-    <strong>${testName}</strong><br>
-    Under the selected scenario, median TAT changes from <strong>${formatDuration(summary.baselineMedian)}</strong> to <strong>${formatDuration(summary.scenarioMedian)}</strong> (${medianChangePct >= 0 ? "+" : ""}${medianChangePct.toFixed(1)}%).<br>
-    The 90th percentile changes from <strong>${formatDuration(summary.baselineP90)}</strong> to <strong>${formatDuration(summary.scenarioP90)}</strong> (${p90ChangePct >= 0 ? "+" : ""}${p90ChangePct.toFixed(1)}%).<br>
-    The main scenario bottleneck is <strong>${bottleneck}</strong>.<br>
-    Baseline performance achieves <strong>${formatPct(summary.baselineWithin)}</strong> within target TAT versus <strong>${formatPct(summary.scenarioWithin)}</strong> under the selected disruption.
+  if (row.overdue) cls = "old";
+  else if (row.tatLabel === "Near breach") cls = "warn";
+
+  return `
+    <span class="age-badge ${cls}">
+      ${formatHours(row.ageHours)}
+      <br>
+      <small>${escapeHTML(row.tatText)}</small>
+    </span>
   `;
 }
 
-function runModel() {
-  if (!filteredRows.length) {
-    setMetric("rowsMetric", "-");
-    setMetric("episodesMetric", "-");
-    setMetric("observedMedianMetric", "-");
-    setMetric("observedP90Metric", "-");
-    setMetric("scenarioMedianMetric", "-");
-    setMetric("scenarioP90Metric", "-");
-    setMetric("withinTargetMetric", "-");
-    setMetric("bottleneckMetric", "-");
-    document.querySelector("#summaryTable tbody").innerHTML = "";
-    document.getElementById("interpretationBox").textContent = "No rows match the current filter.";
+function renderTable(rows) {
+  const tbody = document.querySelector("#otlTable tbody");
+  tbody.innerHTML = "";
+
+  const sorted = [...rows].sort((a, b) => b.ageHours - a.ageHours);
+
+  sorted.forEach(row => {
+    const tr = document.createElement("tr");
+    tr.dataset.sampleKey = row.sampleKey;
+
+    const statusOptions = STATUS_OPTIONS.map(s =>
+      `<option value="${escapeHTML(s)}" ${s === row.techStatus ? "selected" : ""}>${escapeHTML(s)}</option>`
+    ).join("");
+
+    tr.innerHTML = `
+      <td>${ageBadge(row)}</td>
+
+      <td>
+        <strong>${escapeHTML(row.visitNumber)}</strong>
+        <br>
+        <span class="small-text">${escapeHTML(row.patientName)}</span>
+      </td>
+
+      <td>
+        ${escapeHTML(row.location)}
+        <br>
+        <span class="small-text">${escapeHTML(row.wardGroup)} | Target ${row.targetHours} h</span>
+      </td>
+
+      <td>
+        ${escapeHTML(row.test)}
+        <br>
+        <span class="small-text">${escapeHTML(row.specimenType)}</span>
+      </td>
+
+      <td>
+        ${escapeHTML(row.tatStartDisplay)}
+        <br>
+        <span class="small-text">Using ${row.inLabDate ? "In Lab Date" : row.registrationDate ? "Registration Date" : "Collection Date"}</span>
+      </td>
+
+      <td>
+        <strong>${escapeHTML(row.referralStatus || "On OTL")}</strong>
+        <br>
+        <span class="small-text">${escapeHTML(row.storagePositions || "No storage position listed")}</span>
+      </td>
+
+      <td>
+        <select class="row-status">
+          ${statusOptions}
+        </select>
+      </td>
+
+      <td>
+        <textarea class="row-comment">${escapeHTML(row.comment)}</textarea>
+      </td>
+
+      <td>
+        <button class="small save-row-btn">Save</button>
+      </td>
+    `;
+
+    tbody.appendChild(tr);
+  });
+
+  document.querySelectorAll(".save-row-btn").forEach(btn => {
+    btn.addEventListener("click", async event => {
+      const tr = event.target.closest("tr");
+      const sampleKey = tr.dataset.sampleKey;
+      const techStatus = tr.querySelector(".row-status").value;
+      const comment = tr.querySelector(".row-comment").value;
+
+      await saveRowComment(sampleKey, techStatus, comment);
+    });
+  });
+}
+
+async function saveRowComment(sampleKey, techStatus, comment) {
+  const payload = {
+    techStatus,
+    comment,
+    updatedAt: new Date().toISOString()
+  };
+
+  await saveComment(sampleKey, payload);
+
+  currentRows = currentRows.map(r =>
+    r.sampleKey === sampleKey
+      ? {
+          ...r,
+          techStatus,
+          comment,
+          commentUpdatedAt: payload.updatedAt
+        }
+      : r
+  );
+
+  applyFilters();
+}
+
+function updateInterpretation(rows) {
+  const el = document.getElementById("interpretationBox");
+
+  if (!rows.length) {
+    el.textContent = "No current OTL rows match the filter.";
     return;
   }
 
-  const targetTat = Number(document.getElementById("targetTat").value);
-  const scenarioRows = scenarioTatRows(filteredRows);
+  const worst = [...rows].sort((a, b) => b.ageHours - a.ageHours)[0];
+  const overdue = rows.filter(r => r.overdue).length;
+  const near = rows.filter(r => r.tatLabel === "Near breach").length;
+  const over24 = rows.filter(r => r.ageHours >= 24).length;
+  const problem = rows.filter(r => r.techStatus === "Problem sample").length;
 
-  const baselineTats = scenarioRows.map(r => r.baselineTat);
-  const scenarioTats = scenarioRows.map(r => r.scenarioTat);
-
-  const baselineMedian = median(baselineTats);
-  const baselineP90 = quantile(baselineTats, 0.9);
-  const scenarioMedian = median(scenarioTats);
-  const scenarioP90 = quantile(scenarioTats, 0.9);
-  const baselineWithin = (baselineTats.filter(v => v <= targetTat).length / baselineTats.length) * 100;
-  const scenarioWithin = (scenarioTats.filter(v => v <= targetTat).length / scenarioTats.length) * 100;
-
-  const stageSummary = {
-    baselinePre: median(scenarioRows.map(r => r.baselinePre)),
-    baselineProcess: median(scenarioRows.map(r => r.baselineProcess)),
-    baselineAuth: median(scenarioRows.map(r => r.baselineAuth)),
-    scenarioPre: median(scenarioRows.map(r => r.scenarioPre)),
-    scenarioProcess: median(scenarioRows.map(r => r.scenarioProcess)),
-    scenarioAuth: median(scenarioRows.map(r => r.scenarioAuth)),
-  };
-
-  const stagePairs = [
-    ["Transport / pre-analytical delay", stageSummary.scenarioPre],
-    ["Laboratory processing", stageSummary.scenarioProcess],
-    ["Authorisation", stageSummary.scenarioAuth],
-  ];
-  stagePairs.sort((a, b) => b[1] - a[1]);
-  const bottleneck = stagePairs[0][0];
-
-  setMetric("rowsMetric", filteredRows.length.toLocaleString());
-  setMetric("episodesMetric", new Set(filteredRows.map(r => r.episode)).size.toLocaleString());
-  setMetric("observedMedianMetric", formatDuration(baselineMedian));
-  setMetric("observedP90Metric", formatDuration(baselineP90));
-  setMetric("scenarioMedianMetric", formatDuration(scenarioMedian));
-  setMetric("scenarioP90Metric", formatDuration(scenarioP90));
-  setMetric("withinTargetMetric", formatPct(scenarioWithin));
-  setMetric("bottleneckMetric", bottleneck);
-
-  const summary = { baselineMedian, baselineP90, scenarioMedian, scenarioP90, baselineWithin, scenarioWithin };
-  updateSummaryTable(summary);
-  updateCdfChart(baselineTats, scenarioTats);
-  updateStageChart(stageSummary);
-  updateMetricChart({
-    baselineMedianH: +(baselineMedian / 60).toFixed(2),
-    baselineP90H: +(baselineP90 / 60).toFixed(2),
-    baselineWithin: +baselineWithin.toFixed(1),
-    scenarioMedianH: +(scenarioMedian / 60).toFixed(2),
-    scenarioP90H: +(scenarioP90 / 60).toFixed(2),
-    scenarioWithin: +scenarioWithin.toFixed(1),
-  });
-  updateInterpretation(summary, bottleneck, document.getElementById("testSelect").value);
+  el.innerHTML = `
+    There are <strong>${rows.length}</strong> current OTL row(s) in this view.
+    <strong>${overdue}</strong> are overdue based on their ward-specific TAT target,
+    <strong>${near}</strong> are near breach and
+    <strong>${over24}</strong> are older than 24 hours.
+    <br><br>
+    The oldest item is <strong>${escapeHTML(worst.test)}</strong>
+    from <strong>${escapeHTML(worst.location)}</strong>,
+    received <strong>${formatHours(worst.ageHours)}</strong> ago.
+    Its target is <strong>${worst.targetHours} h</strong>
+    and it is currently <strong>${escapeHTML(worst.tatText)}</strong>.
+    <br><br>
+    <strong>${problem}</strong> item(s) are currently marked as problem samples.
+  `;
 }
 
-document.getElementById("csvFile").addEventListener("change", async (event) => {
-  const file = event.target.files[0];
-  if (!file) return;
-  const text = await file.text();
-  rawRows = prepareRows(parseCSV(text));
-  populateTestSelect(rawRows);
-  applyFilters();
+function renderDashboard() {
+  const rows = filteredRows;
+
+  setMetric("rowsMetric", rows.length.toLocaleString());
+  setMetric("episodesMetric", new Set(rows.map(r => r.visitNumber)).size.toLocaleString());
+  setMetric("medianAgeMetric", formatHours(median(rows.map(r => r.ageHours))));
+  setMetric("over24Metric", rows.filter(r => r.ageHours >= 24).length.toLocaleString());
+  setMetric("locatedMetric", rows.filter(r => ["Located in lab", "With section", "Resolved"].includes(r.techStatus)).length.toLocaleString());
+  setMetric("notLocatedMetric", rows.filter(r => r.techStatus === "Not located").length.toLocaleString());
+  setMetric("problemMetric", rows.filter(r => r.techStatus === "Problem sample").length.toLocaleString());
+
+  const last = localStorage.getItem("otlLastExtractTime");
+  setMetric("extractTimeMetric", last ? new Date(last).toLocaleString() : "-");
+
+  updateCharts(rows);
+  updateSummaryTable(rows);
+  renderTable(rows);
+  updateInterpretation(rows);
+}
+
+function toCSV(rows) {
+  const headers = [
+    "age_hours",
+    "tat_target_hours",
+    "tat_status",
+    "tat_text",
+    "age_bucket",
+    "visit_number",
+    "patient_name",
+    "hospital",
+    "location",
+    "ward_group",
+    "test",
+    "specimen_type",
+    "tat_start",
+    "referral_status",
+    "storage_positions",
+    "tech_status",
+    "comment",
+    "comment_updated_at",
+    "alternative_reference",
+    "internal_reference",
+    "source_file"
+  ];
+
+  const lines = [headers.join(",")];
+
+  rows.forEach(r => {
+    const values = [
+      r.ageHours.toFixed(2),
+      r.targetHours,
+      r.tatLabel,
+      r.tatText,
+      r.ageBucket,
+      r.visitNumber,
+      r.patientName,
+      r.hospital,
+      r.location,
+      r.wardGroup,
+      r.test,
+      r.specimenType,
+      r.tatStartDisplay,
+      r.referralStatus,
+      r.storagePositions,
+      r.techStatus,
+      r.comment,
+      r.commentUpdatedAt,
+      r.alternativeReference,
+      r.internalReference,
+      r.sourceFile
+    ];
+
+    lines.push(values.map(v => `"${String(v ?? "").replace(/"/g, '""')}"`).join(","));
+  });
+
+  return lines.join("\n");
+}
+
+function downloadCSV(rows, filename) {
+  const blob = new Blob([toCSV(rows)], {
+    type: "text/csv;charset=utf-8"
+  });
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+
+  a.href = url;
+  a.download = filename;
+  a.click();
+
+  URL.revokeObjectURL(url);
+}
+
+document.getElementById("otlFiles").addEventListener("change", async event => {
+  const files = [...event.target.files];
+  if (!files.length) return;
+
+  const all = [];
+
+  for (const file of files) {
+    const raw = await readFile(file);
+    const prepared = await prepareRows(raw, file.name);
+    all.push(...prepared);
+  }
+
+  const deduped = new Map();
+
+  all.forEach(row => {
+    deduped.set(row.sampleKey, row);
+  });
+
+  currentRows = [...deduped.values()];
+
+  await saveTatSnapshot(currentRows);
+
+  populateWardFilter();
+
+  filteredRows = [...currentRows];
+
+  renderDashboard();
 });
 
 document.getElementById("applyFilterBtn").addEventListener("click", applyFilters);
-document.getElementById("runBtn").addEventListener("click", runModel);
-document.getElementById("testSelect").addEventListener("change", applyFilters);
+
+document.getElementById("clearFilterBtn").addEventListener("click", () => {
+  ["wardGroupFilter", "ageFilter", "statusFilter"].forEach(id => {
+    document.getElementById(id).value = "";
+  });
+
+  ["wardTextFilter", "testTextFilter", "episodeTextFilter"].forEach(id => {
+    document.getElementById(id).value = "";
+  });
+
+  filteredRows = [...currentRows];
+
+  renderDashboard();
+});
+
+document.getElementById("exportCurrentBtn").addEventListener("click", () => {
+  downloadCSV(currentRows, "current_combined_otl.csv");
+});
+
+document.getElementById("exportViewBtn").addEventListener("click", () => {
+  downloadCSV(filteredRows, "filtered_otl_view.csv");
+});
 
 [
-  ["volumeMultiplier","volumeValue",v=>Number(v).toFixed(1)],
-  ["extraDelay","extraDelayValue",v=>`${v} min`],
-  ["intakeStaff","intakeStaffValue",v=>v],
-  ["processingStaff","processingStaffValue",v=>v],
-  ["authStaff","authStaffValue",v=>v],
-  ["targetTat","targetTatValue",v=>formatDuration(Number(v))],
-  ["baselineIntakeStaff","baselineIntakeValue",v=>v],
-  ["baselineProcessingStaff","baselineProcessingValue",v=>v],
-  ["baselineAuthStaff","baselineAuthValue",v=>v]
-].forEach(([id,labelId,formatter]) => {
-  const input=document.getElementById(id), label=document.getElementById(labelId);
-  const update=()=>label.textContent=formatter(input.value);
-  input.addEventListener("input",update); update();
+  "wardGroupFilter",
+  "ageFilter",
+  "statusFilter",
+  "wardTextFilter",
+  "testTextFilter",
+  "episodeTextFilter"
+].forEach(id => {
+  const el = document.getElementById(id);
+
+  el.addEventListener("change", applyFilters);
+
+  el.addEventListener("keyup", event => {
+    if (event.key === "Enter") applyFilters();
+  });
 });
