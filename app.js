@@ -105,18 +105,6 @@ function getValue(row, aliasList) {
   return "";
 }
 
-function parseCSV(text) {
-  const lines = text.trim().split(/\r?\n/);
-  const headers = splitCSVLine(lines[0]).map(h => h.trim());
-
-  return lines.slice(1).filter(Boolean).map(line => {
-    const values = splitCSVLine(line);
-    const obj = {};
-    headers.forEach((h, i) => obj[h] = values[i] ?? "");
-    return obj;
-  });
-}
-
 function splitCSVLine(line) {
   const out = [];
   let current = "";
@@ -142,6 +130,18 @@ function splitCSVLine(line) {
   return out;
 }
 
+function parseCSV(text) {
+  const lines = text.trim().split(/\r?\n/);
+  const headers = splitCSVLine(lines[0]).map(h => h.trim());
+
+  return lines.slice(1).filter(Boolean).map(line => {
+    const values = splitCSVLine(line);
+    const obj = {};
+    headers.forEach((h, i) => obj[h] = values[i] ?? "");
+    return obj;
+  });
+}
+
 async function readFile(file) {
   const name = file.name.toLowerCase();
 
@@ -159,7 +159,7 @@ async function readFile(file) {
       raw: false
     });
   } catch (error) {
-    alert("Could not read Excel file. Try opening the OTL in Excel and saving it again as .xlsx, then upload that saved copy.");
+    alert("Could not read Excel file. Try opening the OTL in Excel and saving it again as .xlsx.");
     console.error(error);
     return [];
   }
@@ -177,7 +177,7 @@ async function readFile(file) {
   );
 
   if (headerRowIndex === -1) {
-    alert("Could not find the OTL header row. I expected a column called Visit Number.");
+    alert("Could not find the OTL header row. Expected a column called Visit Number.");
     console.log(allRows.slice(0, 20));
     return [];
   }
@@ -188,19 +188,13 @@ async function readFile(file) {
     .slice(headerRowIndex + 1)
     .filter(row => row.some(cell => String(cell || "").trim() !== ""));
 
-  const objects = dataRows.map(row => {
+  return dataRows.map(row => {
     const obj = {};
     headers.forEach((header, i) => {
       if (header) obj[header] = row[i] ?? "";
     });
     return obj;
   });
-
-  console.log("OTL header row:", headerRowIndex + 1);
-  console.log("OTL rows read:", objects.length);
-  console.log("First OTL row:", objects[0]);
-
-  return objects;
 }
 
 function parseDate(value) {
@@ -221,18 +215,18 @@ function parseDate(value) {
   let d = new Date(text);
   if (!isNaN(d)) return d;
 
-  const m = text.match(
+  const m1 = text.match(
     /^(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?$/
   );
 
-  if (m) {
+  if (m1) {
     d = new Date(
-      Number(m[1]),
-      Number(m[2]) - 1,
-      Number(m[3]),
-      Number(m[4]),
-      Number(m[5]),
-      Number(m[6] || 0)
+      Number(m1[1]),
+      Number(m1[2]) - 1,
+      Number(m1[3]),
+      Number(m1[4]),
+      Number(m1[5]),
+      Number(m1[6] || 0)
     );
 
     if (!isNaN(d)) return d;
@@ -258,6 +252,18 @@ function parseDate(value) {
   return null;
 }
 
+function formatDateTime24(date) {
+  if (!date || isNaN(date)) return "-";
+
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  const hh = String(date.getHours()).padStart(2, "0");
+  const min = String(date.getMinutes()).padStart(2, "0");
+
+  return `${yyyy}-${mm}-${dd} ${hh}:${min}`;
+}
+
 function currentTatHoursFrom(date) {
   return (new Date() - date) / 3600000;
 }
@@ -278,6 +284,7 @@ function formatTat(hours) {
 
 function median(arr) {
   const values = arr.filter(v => Number.isFinite(v));
+
   if (!values.length) return null;
 
   const s = [...values].sort((a, b) => a - b);
@@ -294,15 +301,21 @@ function assignTatCategory(hours) {
   return ">24 h";
 }
 
-function assignWardGroup(location) {
-  const loc = String(location || "").toUpperCase();
+function deriveWardFromLocationAndEpisode(location, visitNumber) {
+  const loc = String(location || "").trim();
+  const episode = String(visitNumber || "").trim().toUpperCase();
 
-  if (loc.includes("EC--") || loc.includes(" EC") || loc.includes("EMERGENCY")) return "Emergency";
-  if (loc.includes("ICU") || loc.includes("HCU") || loc.includes("CCU")) return "ICU / High Care";
-  if (loc.includes("OPD") || loc.includes("CLINIC") || loc.includes("MOPD")) return "Outpatients";
-  if (loc.includes("SURG") || loc.includes("ORTHO") || loc.includes("UROLOGY")) return "Surgical wards";
+  if (!episode.startsWith("SA")) {
+    return episode.slice(0, 2);
+  }
 
-  return "Medical / other wards";
+  const parts = loc.split(/\s+/);
+
+  if (parts.length >= 2) {
+    return parts.slice(1).join(" ");
+  }
+
+  return loc;
 }
 
 function classifyOTL(row, sourceFile) {
@@ -393,39 +406,9 @@ function saveComment(sampleKey, payload) {
   localStorage.setItem("otlComments", JSON.stringify(comments));
 }
 
-function formatDateTime24(date) {
-  if (!date || isNaN(date)) return "-";
-
-  const yyyy = date.getFullYear();
-  const mm = String(date.getMonth() + 1).padStart(2, "0");
-  const dd = String(date.getDate()).padStart(2, "0");
-  const hh = String(date.getHours()).padStart(2, "0");
-  const min = String(date.getMinutes()).padStart(2, "0");
-
-  return `${yyyy}-${mm}-${dd} ${hh}:${min}`;
-}
-
-function deriveWardFromLocationAndEpisode(location, visitNumber) {
-  const loc = String(location || "").trim();
-  const episode = String(visitNumber || "").trim().toUpperCase();
-
-  if (!episode.startsWith("SA")) {
-    return episode.slice(0, 2);
-  }
-
-  const parts = loc.split(/\s+/);
-
-  if (parts.length >= 2) {
-    return parts.slice(1).join(" ");
-  }
-
-  return loc;
-}
-
 async function prepareRows(rows, sourceFile) {
   const comments = getSavedComments();
   const prepared = [];
-  const rejected = [];
 
   rows.forEach(row => {
     const visitNumber = getValue(row, COLUMN_ALIASES.visitNumber);
@@ -444,23 +427,30 @@ async function prepareRows(rows, sourceFile) {
 
     const tatStart = registrationDate || inLabDate || collectionDate;
 
-    if (!visitNumber || !test || !tatStart) {
-      rejected.push({ reason: "Missing visit/test/tatStart", row });
-      return;
-    }
+    if (!visitNumber || !test || !tatStart) return;
 
     const currentTatHours = currentTatHoursFrom(tatStart);
 
-    if (!Number.isFinite(currentTatHours)) {
-      rejected.push({ reason: "Invalid TAT", row });
-      return;
-    }
+    if (!Number.isFinite(currentTatHours)) return;
 
-    const wardGroup = assignWardGroup(location);
-    const otlRule = classifyOTL({ location, test }, sourceFile);
+    const ward = deriveWardFromLocationAndEpisode(location, visitNumber);
+
+    const otlRule = classifyOTL(
+      {
+        location,
+        test
+      },
+      sourceFile
+    );
+
     const tatStatus = getTatStatus(currentTatHours, otlRule.tatHours);
 
-    const sampleKey = makeSampleKey(visitNumber, test, registrationDate || collectionDate || inLabDate);
+    const sampleKey = makeSampleKey(
+      visitNumber,
+      test,
+      registrationDate || collectionDate || inLabDate
+    );
+
     const saved = comments[sampleKey] || {};
 
     prepared.push({
@@ -469,7 +459,7 @@ async function prepareRows(rows, sourceFile) {
       patientName: String(patientName || "").trim(),
       hospital: String(hospital || "").trim(),
       location: String(location || "").trim(),
-      wardGroup: deriveWardFromLocationAndEpisode(location, visitNumber),
+      ward,
       test: String(test || "").trim(),
       specimenType: String(specimenType || "").trim(),
       collectionDate,
@@ -496,9 +486,6 @@ async function prepareRows(rows, sourceFile) {
       commentUpdatedAt: saved.updatedAt || ""
     });
   });
-
-  console.log("Prepared rows:", prepared.length);
-  console.log("Rejected rows:", rejected.length, rejected.slice(0, 5));
 
   return prepared;
 }
@@ -551,39 +538,41 @@ function applyFilters() {
   const episodeText = document.getElementById("episodeTextFilter")?.value.trim() || "";
 
   filteredRows = currentRows.filter(r =>
-    (!selectedSection || r.otlCategory === selectedSection || r.wardGroup === selectedSection) &&
+    (!selectedSection || r.otlCategory === selectedSection) &&
     (!selectedTat || r.tatCategory === selectedTat) &&
     (!selectedStatus || r.techStatus === selectedStatus) &&
-    safeContains(r.location, wardText) &&
+    safeContains(r.ward, wardText) &&
     safeContains(r.test, testText) &&
     safeContains(r.visitNumber, episodeText)
   );
-
-  console.log("Current rows:", currentRows.length);
-  console.log("Filtered rows:", filteredRows.length);
 
   renderDashboard();
 }
 
 function groupCount(rows, field) {
   const counts = {};
+
   rows.forEach(r => {
     const key = r[field] || "Unknown";
     counts[key] = (counts[key] || 0) + 1;
   });
+
   return counts;
 }
 
 function updateCharts(rows) {
   const sectionCounts = groupCount(rows, "otlCategory");
+
   const tatCounts = {};
   TAT_CATEGORIES.forEach(b => {
     tatCounts[b] = rows.filter(r => r.tatCategory === b).length;
   });
 
   const wardCanvas = document.getElementById("wardChart");
+
   if (wardCanvas) {
     const ctx = wardCanvas.getContext("2d");
+
     if (wardChart) wardChart.destroy();
 
     wardChart = new Chart(ctx, {
@@ -597,14 +586,20 @@ function updateCharts(rows) {
       },
       options: {
         responsive: true,
-        scales: { y: { beginAtZero: true } }
+        scales: {
+          y: {
+            beginAtZero: true
+          }
+        }
       }
     });
   }
 
   const tatCanvas = document.getElementById("ageChart");
+
   if (tatCanvas) {
     const ctx = tatCanvas.getContext("2d");
+
     if (tatChart) tatChart.destroy();
 
     tatChart = new Chart(ctx, {
@@ -618,7 +613,11 @@ function updateCharts(rows) {
       },
       options: {
         responsive: true,
-        scales: { y: { beginAtZero: true } }
+        scales: {
+          y: {
+            beginAtZero: true
+          }
+        }
       }
     });
   }
@@ -695,9 +694,9 @@ function renderTable(rows) {
       </td>
 
       <td>
-        ${escapeHTML(row.location)}
+        ${escapeHTML(row.ward)}
         <br>
-        <span class="small-text">${escapeHTML(row.wardGroup)}</span>
+        <span class="small-text">${escapeHTML(row.location)}</span>
       </td>
 
       <td>
@@ -735,7 +734,7 @@ function renderTable(rows) {
       </td>
 
       <td>
-        <button class="small save-row-btn">Save</button>
+        <span class="small-text autosave-label">Auto-saved</span>
       </td>
     `;
 
@@ -743,27 +742,33 @@ function renderTable(rows) {
   });
 
   document.querySelectorAll("#otlTable tbody tr").forEach(tr => {
-  const statusEl = tr.querySelector(".row-status");
-  const commentEl = tr.querySelector(".row-comment");
+    const statusEl = tr.querySelector(".row-status");
+    const commentEl = tr.querySelector(".row-comment");
+    const labelEl = tr.querySelector(".autosave-label");
 
-  let saveTimer = null;
+    let saveTimer = null;
 
-  function autoSave() {
-    clearTimeout(saveTimer);
+    function autoSave() {
+      if (labelEl) labelEl.textContent = "Saving...";
 
-    saveTimer = setTimeout(() => {
-      saveRowComment(
-        tr.dataset.sampleKey,
-        statusEl.value,
-        commentEl.value,
-        false
-      );
-    }, 600);
-  }
+      clearTimeout(saveTimer);
 
-  statusEl.addEventListener("change", autoSave);
-  commentEl.addEventListener("input", autoSave);
-});
+      saveTimer = setTimeout(() => {
+        saveRowComment(
+          tr.dataset.sampleKey,
+          statusEl.value,
+          commentEl.value,
+          false
+        );
+
+        if (labelEl) labelEl.textContent = "Auto-saved";
+      }, 500);
+    }
+
+    statusEl.addEventListener("change", autoSave);
+    commentEl.addEventListener("input", autoSave);
+  });
+}
 
 function saveRowComment(sampleKey, techStatus, comment, rerender = true) {
   const payload = {
@@ -776,7 +781,23 @@ function saveRowComment(sampleKey, techStatus, comment, rerender = true) {
 
   currentRows = currentRows.map(r =>
     r.sampleKey === sampleKey
-      ? { ...r, techStatus, comment, commentUpdatedAt: payload.updatedAt }
+      ? {
+          ...r,
+          techStatus,
+          comment,
+          commentUpdatedAt: payload.updatedAt
+        }
+      : r
+  );
+
+  filteredRows = filteredRows.map(r =>
+    r.sampleKey === sampleKey
+      ? {
+          ...r,
+          techStatus,
+          comment,
+          commentUpdatedAt: payload.updatedAt
+        }
       : r
   );
 
@@ -799,7 +820,7 @@ function updateInterpretation(rows) {
   const near = rows.filter(r => r.tatLabel === "Near breach").length;
   const over24 = rows.filter(r => r.currentTatHours >= 24).length;
   const freezer = rows.filter(r => r.freezerCheck).length;
-  const problem = rows.filter(r => r.techStatus === "Issue / follow-up").length;
+  const issue = rows.filter(r => r.techStatus === "Issue / follow-up").length;
 
   el.innerHTML = `
     There are <strong>${rows.length}</strong> current OTL row(s) in this view.
@@ -808,10 +829,10 @@ function updateInterpretation(rows) {
     <strong>${over24}</strong> have a TAT greater than 24 hours.
     <br><br>
     <strong>${freezer}</strong> row(s) are freezer-check OTLs.
-    <strong>${problem}</strong> item(s) are marked as problem samples.
+    <strong>${issue}</strong> item(s) are marked as issue / follow-up.
     <br><br>
     The longest TAT item is <strong>${escapeHTML(worst.test)}</strong>
-    from <strong>${escapeHTML(worst.location)}</strong>,
+    from <strong>${escapeHTML(worst.ward)}</strong>,
     registered <strong>${formatTat(worst.currentTatHours)}</strong> ago.
     It is classified as <strong>${escapeHTML(worst.otlCategory)}</strong>
     and is currently <strong>${escapeHTML(worst.tatText)}</strong>.
@@ -830,7 +851,7 @@ function renderDashboard() {
   setMetric("problemMetric", rows.filter(r => r.techStatus === "Issue / follow-up").length.toLocaleString());
 
   const last = localStorage.getItem("otlLastExtractTime");
-  setMetric("extractTimeMetric", last ? new Date(last).toLocaleString() : "-");
+  setMetric("extractTimeMetric", last ? formatDateTime24(new Date(last)) : "-");
 
   updateCharts(rows);
   updateSummaryTable(rows);
@@ -850,6 +871,7 @@ function saveTatSnapshot(rows) {
       sampleKey: r.sampleKey,
       visitNumber: r.visitNumber,
       test: r.test,
+      ward: r.ward,
       location: r.location,
       otlCategory: r.otlCategory,
       currentTatHours: Number(r.currentTatHours.toFixed(2)),
@@ -872,11 +894,11 @@ function exportOTLWithComments() {
     "OTL Category": r.otlCategory,
     "Visit Number": r.visitNumber,
     "Patient Name": r.patientName,
+    "Ward": r.ward,
     "Location": r.location,
-    "Ward Group": r.wardGroup,
     "Test": r.test,
     "Specimen Type": r.specimenType,
-    "Registration / TAT Start": r.tatStartDisplay,
+    "Registered": r.tatStartDisplay,
     "Current TAT Hours": r.currentTatHours.toFixed(2),
     "TAT Target": r.targetTatHours,
     "TAT Status": r.tatLabel,
@@ -895,7 +917,7 @@ function exportOTLWithComments() {
   XLSX.utils.book_append_sheet(workbook, worksheet, "Current OTL");
 
   const now = new Date();
-  const stamp = now.toISOString().slice(0, 16).replace("T", "_").replace(":", "");
+  const stamp = formatDateTime24(now).replace(" ", "_").replace(":", "");
 
   XLSX.writeFile(workbook, `OTL_with_comments_${stamp}.xlsx`);
 }
@@ -910,12 +932,11 @@ function toCSV(rows) {
     "tat_category",
     "visit_number",
     "patient_name",
-    "hospital",
+    "ward",
     "location",
-    "ward_group",
     "test",
     "specimen_type",
-    "tat_start",
+    "registered",
     "referral_status",
     "storage_positions",
     "tech_status",
@@ -936,9 +957,8 @@ function toCSV(rows) {
       r.tatCategory,
       r.visitNumber,
       r.patientName,
-      r.hospital,
+      r.ward,
       r.location,
-      r.wardGroup,
       r.test,
       r.specimenType,
       r.tatStartDisplay,
