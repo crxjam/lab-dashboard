@@ -66,3 +66,31 @@ th { background: #f8fafc; position: sticky; top: 0; z-index: 1; }
   font-weight: 700;
   text-decoration: underline;
 }
+
+.episode-copy-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.copy-episode-btn {
+  width: auto;
+  margin: 0;
+  padding: 3px 7px;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #334155;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.copy-episode-btn:hover {
+  background: #e2e8f0;
+}
+
+.copy-episode-btn:active {
+  transform: scale(0.96);
+}
+
