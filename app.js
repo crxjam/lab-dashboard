@@ -815,8 +815,18 @@ function renderTable(rows) {
       <td>${tatBadge(row)}</td>
 
       <td>
-        <strong>${escapeHTML(row.visitNumber)}</strong>
-        <br>
+        <div class="episode-copy-wrap">
+          <strong>${escapeHTML(row.visitNumber)}</strong>
+          <button
+            type="button"
+            class="copy-episode-btn"
+            data-episode="${escapeHTML(row.visitNumber)}"
+            title="Copy episode number"
+          >
+            Copy
+          </button>
+        </div>
+      
         <span class="small-text">${escapeHTML(row.patientName)}</span>
       </td>
 
