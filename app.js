@@ -876,6 +876,30 @@ function renderTable(rows) {
     `;
 
     tbody.appendChild(tr);
+
+    // COPY EPISODE NUMBER BUTTON
+    const copyBtn = tr.querySelector(".copy-episode-btn");
+
+    if (copyBtn) {
+      copyBtn.addEventListener("click", async () => {
+        const episode = copyBtn.dataset.episode;
+
+        try {
+          await navigator.clipboard.writeText(episode);
+
+          const oldText = copyBtn.textContent;
+          copyBtn.textContent = "✓";
+
+          setTimeout(() => {
+            copyBtn.textContent = oldText;
+          }, 1200);
+
+        } catch (error) {
+          console.error("Could not copy episode number:", error);
+        }
+      });
+    }
+
   });
 
   document.querySelectorAll("#otlTable tbody tr").forEach(tr => {
