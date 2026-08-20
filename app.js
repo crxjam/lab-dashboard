@@ -427,11 +427,16 @@ async function prepareRows(rows, sourceFile) {
     const internalReference = getValue(row, COLUMN_ALIASES.internalReference);
     const hospital = getValue(row, COLUMN_ALIASES.hospital);
 
-    const tatStart = registrationDate || inLabDate || collectionDate;
+    const tatStart = inLabDate || registrationDate || collectionDate;
 
     if (!visitNumber || !test || !tatStart) return;
 
     const currentTatHours = currentTatHoursFrom(tatStart);
+
+    const arFlag =
+      registrationDate &&
+      inLabDate &&
+      inLabDate > registrationDate;
 
     if (!Number.isFinite(currentTatHours)) return;
 
@@ -468,6 +473,7 @@ async function prepareRows(rows, sourceFile) {
       registrationDate,
       inLabDate,
       tatStart,
+      arFlag,
       tatStartDisplay: formatDateTime24(tatStart),
       currentTatHours,
       tatCategory: assignTatCategory(currentTatHours),
@@ -816,6 +822,12 @@ function renderTable(rows) {
 
       <td>
         <div class="episode-copy-wrap">
+      
+          ${row.arFlag
+            ? `<span class="ar-flag" title="In Lab Date is later than Registration Date">AR</span>`
+            : ""
+          }
+      
           <strong>${escapeHTML(row.visitNumber)}</strong>
           <button
             type="button"
