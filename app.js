@@ -219,7 +219,7 @@ let d = new Date(text);
 if (!isNaN(d)) return d;
 
 const m1 = text.match(
-/^(\d{4})-(\d{1,2})-(\d{1,2}) T:(\d{2})(?::(\d{2}))?$/
+/^(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?$/
 );
 
 if (m1) {
@@ -237,7 +237,7 @@ if (!isNaN(d)) return d;
 }
 
 const m2 = text.match(
-/^(\d{1,2})/.-/.-(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/
+/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/
 );
 
 if (m2) {
@@ -266,7 +266,7 @@ const dd = String(date.getDate()).padStart(2, "0");
 const hh = String(date.getHours()).padStart(2, "0");
 const min = String(date.getMinutes()).padStart(2, "0");
 
-return ${yyyy}-${mm}-${dd} ${hh}:${min};
+return `${yyyy}-${mm}-${dd} ${hh}:${min}`;return `${yyyy}-${mm}-${dd} ${hh}:${min}`;
 }
 
 function currentTatHoursFrom(date) {
@@ -527,6 +527,14 @@ return String(value || "").toLowerCase().includes(query.toLowerCase());
 }
 
 function escapeHTML(value) {
+  return String(value ?? "").replace(/[&<>"']/g, ch => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#039;"
+  }[ch]));
+}
 return String(value ?? "").replace(/[&<>"']/g, ch => ({
 "&": "&",
 "<": "<",
