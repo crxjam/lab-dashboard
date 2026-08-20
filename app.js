@@ -749,10 +749,10 @@ if (!tbody) return;
 
 tbody.innerHTML = "";
 
-const groups = [...new Set(rows.map(r => r.otlCategory))].sort();
+const groups = [...new Set(rows.map(r => r.ward))].sort();
 
 groups.forEach(group => {
-const g = rows.filter(r => r.otlCategory === group);
+const g = rows.filter(r => r.ward === group);
 const tr = document.createElement("tr");
 
 const cells = [
