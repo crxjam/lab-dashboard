@@ -859,7 +859,7 @@ function renderTable(rows) {
       <td>
         ${escapeHTML(row.tatStartDisplay)}
         <br>
-        <span class="small-text">TAT from Registration Date</span>
+        <span class="small-text">TAT from In Lab Date</span>
         <br>
         <span class="small-text">Target: ${escapeHTML(row.targetTatHours)}${typeof row.targetTatHours === "number" ? " h" : ""}</span>
       </td>
