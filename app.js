@@ -1093,7 +1093,18 @@ alert("No OTL data loaded.");
 return;
 }
 
+const exporterName = prompt("Please enter your name before exporting:");
+
+if (!exporterName || !exporterName.trim()) {
+alert("Export cancelled. A name is required.");
+return;
+}
+
+const cleanName = exporterName.trim();
+
 const exportRows = currentRows.map(r => ({
+"Exported By": cleanName,
+"Export Date & Time": formatDateTime24(new Date()),
 "OTL Category": r.otlCategory,
 "Visit Number": r.visitNumber,
 "Patient Name": r.patientName,
@@ -1122,7 +1133,14 @@ XLSX.utils.book_append_sheet(workbook, worksheet, "Current OTL");
 const now = new Date();
 const stamp = formatDateTime24(now).replace(" ", "_").replace(":", "");
 
-XLSX.writeFile(workbook, `OTL_with_comments_${stamp}.xlsx`);
+const safeName = cleanName
+.replace(/[^a-zA-Z0-9_-]/g, "_")
+.replace(/_+/g, "_");
+
+XLSX.writeFile(
+workbook,
+`OTL_with_comments_${stamp}_${safeName}.xlsx`
+);
 }
 
 function toCSV(rows) {
