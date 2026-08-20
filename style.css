@@ -94,3 +94,14 @@ th { background: #f8fafc; position: sticky; top: 0; z-index: 1; }
   transform: scale(0.96);
 }
 
+.ar-flag {
+  display: inline-block;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: #fee2e2;
+  color: #991b1b;
+  font-size: 10px;
+  font-weight: 800;
+  margin-right: 4px;
+}
+
