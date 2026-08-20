@@ -440,7 +440,42 @@ async function prepareRows(rows, sourceFile) {
 
     if (!Number.isFinite(currentTatHours)) return;
 
-    const ward = deriveWardFromLocationAndEpisode(location, visitNumber);
+    function deriveWardFromLocationAndEpisode(location, visitNumber) {
+      const loc = String(location || "").trim().toUpperCase();
+    
+      const LOCATION_MAP = {
+        "91G026 EC--": "GSH EC",
+        "91G026 TC--": "GSH TC",
+        "91G026 C14-": "GSH C14",
+        "91G026 C24-": "GSH C24",
+        "91G026 C26-": "GSH C26",
+        "91G026 C27-": "GSH C27",
+        "91G026 D12-": "GSH D12",
+        "91G026 D13-": "GSH D13",
+        "91G026 D22-": "GSH D22",
+        "91G026 F4--": "GSH F4",
+        "91G026 G42U": "GSH G42U",
+        "91G026 K41-": "GSH K41",
+        "91G026 K41U": "GSH K41U",
+    
+        "91F002 CAS-": "FBH CAS",
+    
+        "91V009 EC--": "FBH EC"
+      };
+    
+      // Exact predefined matches
+      if (LOCATION_MAP[loc]) {
+        return LOCATION_MAP[loc];
+      }
+    
+      // Any other GSH location
+      if (loc.startsWith("91G026")) {
+        return "GSH Other";
+      }
+    
+      // Everything else
+      return "Other";
+    }
 
     const otlRule = classifyOTL(
       {
