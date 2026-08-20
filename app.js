@@ -266,7 +266,7 @@ const dd = String(date.getDate()).padStart(2, "0");
 const hh = String(date.getHours()).padStart(2, "0");
 const min = String(date.getMinutes()).padStart(2, "0");
 
-return `${yyyy}-${mm}-${dd} ${hh}:${min}`;return `${yyyy}-${mm}-${dd} ${hh}:${min}`;
+return `${yyyy}-${mm}-${dd} ${hh}:${min}`;
 }
 
 function currentTatHoursFrom(date) {
@@ -276,15 +276,15 @@ return (new Date() - date) / 3600000;
 function formatTat(hours) {
 if (hours == null || !Number.isFinite(hours)) return "-";
 
-if (hours < 1) return ${Math.round(hours * 60)} min;
+if (hours < 1) return `${Math.round(hours * 60)} min`;
 
 const h = Math.floor(hours);
 const m = Math.round((hours - h) * 60);
 
-if (m === 60) return ${h + 1} h;
-if (m === 0) return ${h} h;
+if (m === 60) return `${h + 1} h`;
+if (m === 0) return `${h} h`;
 
-return ${h} h ${m} min;
+return `${h} h ${m} min`;
 }
 
 function median(arr) {
@@ -385,7 +385,7 @@ if (diff >= 2) {
 return {
 label: "Within TAT",
 outsideTat: false,
-text: ${formatTat(diff)} remaining
+text: `${formatTat(diff)} remaining`
 };
 }
 
@@ -393,14 +393,14 @@ if (diff >= 0) {
 return {
 label: "Near breach",
 outsideTat: false,
-text: ${formatTat(diff)} remaining
+text: `${formatTat(diff)} remaining`
 };
 }
 
 return {
 label: "Outside TAT",
 outsideTat: true,
-text: ${formatTat(Math.abs(diff))} outside TAT
+text: `${formatTat(Math.abs(diff))} outside TAT`
 };
 }
 
@@ -535,14 +535,6 @@ function escapeHTML(value) {
     "'": "&#039;"
   }[ch]));
 }
-return String(value ?? "").replace(/[&<>"']/g, ch => ({
-"&": "&",
-"<": "<",
-">": ">",
-'"': """,
-"'": "'"
-}[ch]));
-}
 
 function setMetric(id, value) {
 const el = document.getElementById(id);
@@ -635,7 +627,7 @@ const testCountsRaw = testItemCounts(rows);
 const testCounts = Object.fromEntries(
 Object.entries(testCountsRaw)
 .sort((a, b) => b[1] - a[1])
-.map(([test, count]) => [${test} (${count}), count])
+.map(([test, count]) => [`${test} (${count})`, count])
 );
 
 const wardCanvas = document.getElementById("wardChart");
@@ -821,12 +813,13 @@ let cls = "";
 if (row.outsideTat) cls = "old";
 else if (row.tatLabel === "Near breach") cls = "warn";
 
-return     <span class="age-badge ${cls}">
+return `
+    <span class="age-badge ${cls}">
       ${formatTat(row.currentTatHours)}
       <br>
       <small>${escapeHTML(row.tatText)}</small>
     </span>
- ;
+`;
 }
 
 function renderTable(rows) {
@@ -1032,7 +1025,8 @@ const over24 = rows.filter(r => r.currentTatHours >= 24).length;
 const freezer = rows.filter(r => r.freezerCheck).length;
 const issue = rows.filter(r => r.techStatus === "Issue / follow-up").length;
 
-el.innerHTML =     There are <strong>${rows.length}</strong> current OTL row(s) in this view.
+el.innerHTML = `
+    There are <strong>${rows.length}</strong> current OTL row(s) in this view.
     <strong>${outsideTat}</strong> are outside TAT,
     <strong>${near}</strong> are near breach and
     <strong>${over24}</strong> have a TAT greater than 24 hours.
@@ -1042,10 +1036,10 @@ el.innerHTML =     There are <strong>${rows.length}</strong> current OTL row(s) 
     <br><br>
     The longest TAT item is <strong>${escapeHTML(worst.test)}</strong>
     from <strong>${escapeHTML(worst.ward)}</strong>,
-    registered <strong>${formatTat(worst.currentTatHours)}</strong> ago.
+    with a current TAT of <strong>${formatTat(worst.currentTatHours)}</strong>.
     It is classified as <strong>${escapeHTML(worst.otlCategory)}</strong>
     and is currently <strong>${escapeHTML(worst.tatText)}</strong>.
- ;
+`;
 }
 
 function renderDashboard() {
@@ -1107,7 +1101,7 @@ const exportRows = currentRows.map(r => ({
 "Location": r.location,
 "Test": r.test,
 "Specimen Type": r.specimenType,
-"Registered": r.tatStartDisplay,
+"In Lab Date & Time": r.tatStartDisplay,
 "Current TAT Hours": r.currentTatHours.toFixed(2),
 "TAT Target": r.targetTatHours,
 "TAT Status": r.tatLabel,
@@ -1128,7 +1122,7 @@ XLSX.utils.book_append_sheet(workbook, worksheet, "Current OTL");
 const now = new Date();
 const stamp = formatDateTime24(now).replace(" ", "_").replace(":", "");
 
-XLSX.writeFile(workbook, OTL_with_comments_${stamp}.xlsx);
+XLSX.writeFile(workbook, `OTL_with_comments_${stamp}.xlsx`);
 }
 
 function toCSV(rows) {
@@ -1227,7 +1221,7 @@ saveTatSnapshot(currentRows);
 populateWardFilter();
 renderDashboard();
 
-alert(Loaded ${currentRows.length} OTL row(s).);
+alert(`Loaded ${currentRows.length} OTL row(s).`);
 });
 
 document.getElementById("applyFilterBtn").addEventListener("click", applyFilters);
