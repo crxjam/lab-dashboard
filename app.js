@@ -910,11 +910,9 @@ episodeGroups.forEach(groupInfo => {
 
     commentUpdatedAt: saved.updatedAt || ""
   });
-  });
 
 });
 
-// CLOSE rows.forEach
 });
 
 // Load comments shared across all PCs
@@ -1369,7 +1367,7 @@ tr.innerHTML = `
     <div class="episode-copy-wrap">
   
       ${row.arRefFlag
-        ? `<span class="ar-flag" title="In Lab Date is later than Registration Date">AR</span>`
+        ? `<span class="ar-flag" title="In Lab Date is later than Registration Date">${escapeHTML(row.arRefFlag)}</span>`
         : ""
       }
   
