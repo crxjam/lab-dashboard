@@ -554,6 +554,12 @@ const arFlag =
   inLabDate &&
   inLabDate > registrationDate;
 
+const arRefFlag = arFlag
+  ? String(episode || "").trim().toUpperCase().startsWith("SA")
+    ? "AR"
+    : "REF"
+  : "";
+
 if (!Number.isFinite(currentTatHours)) return;
 
 const ward = deriveWardFromLocationAndEpisode(location, visitNumber);
@@ -589,7 +595,7 @@ prepared.push({
   registrationDate,
   inLabDate,
   tatStart,
-  arFlag,
+  arRefFlag,
   tatStartDisplay: formatDateTime24(tatStart),
   currentTatHours,
   tatCategory: assignTatCategory(currentTatHours),
@@ -961,7 +967,7 @@ tr.innerHTML = `
   <td>
     <div class="episode-copy-wrap">
   
-      ${row.arFlag
+      ${row.arRefFlag
         ? `<span class="ar-flag" title="In Lab Date is later than Registration Date">AR</span>`
         : ""
       }
