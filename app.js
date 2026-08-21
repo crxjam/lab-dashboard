@@ -1396,7 +1396,7 @@ tr.innerHTML = `
     <br>
     <span class="small-text">${escapeHTML(row.specimenType)}</span>
     <br>
-    <span class="small-text">${escapeHTML(row.otlCategory)}</span>
+    <span class="small-text">${escapeHTML(row.episodeGroup)}</span>
   </td>
 
   <td>
@@ -1774,10 +1774,6 @@ renderDashboard();
 });
 
 document.getElementById("exportCurrentBtn").addEventListener("click", exportOTLWithComments);
-
-document.getElementById("exportViewBtn").addEventListener("click", () => {
-downloadCSV(filteredRows, "filtered_otl_view.csv");
-});
 
 [
 "groupFilter",
