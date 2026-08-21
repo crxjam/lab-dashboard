@@ -969,6 +969,7 @@ if (groups.includes(current)) select.value = current;
 }
 
 function applyFilters() {
+const selectedGroup = document.getElementById("groupFilter")?.value || "";
 const selectedSection = document.getElementById("wardGroupFilter")?.value || "";
 const selectedTat = document.getElementById("ageFilter")?.value || "";
 const selectedStatus = document.getElementById("statusFilter")?.value || "";
@@ -977,6 +978,7 @@ const testText = document.getElementById("testTextFilter")?.value.trim() || "";
 const episodeText = document.getElementById("episodeTextFilter")?.value.trim() || "";
 
 filteredRows = currentRows.filter(r =>
+(!selectedGroup || r.episodeGroup === selectedGroup) &&
 (!selectedSection || r.otlCategory === selectedSection) &&
 (!selectedTat || r.tatCategory === selectedTat) &&
 (!selectedStatus || r.techStatus === selectedStatus) &&
@@ -987,7 +989,7 @@ safeContains(r.visitNumber, episodeText)
 
 renderDashboard();
 }
-
+  
 function splitTests(testString) {
   return String(testString || "")
     .split(/[,\n;]+/)
@@ -1753,7 +1755,7 @@ alert(`Loaded ${currentRows.length} OTL row(s).`);
 document.getElementById("applyFilterBtn").addEventListener("click", applyFilters);
 
 document.getElementById("clearFilterBtn").addEventListener("click", () => {
-["wardGroupFilter", "ageFilter", "statusFilter"].forEach(id => {
+["groupFilter", "wardGroupFilter", "ageFilter", "statusFilter"].forEach(id => {
 const el = document.getElementById(id);
 if (el) el.value = "";
 });
@@ -1774,6 +1776,7 @@ downloadCSV(filteredRows, "filtered_otl_view.csv");
 });
 
 [
+"groupFilter",
 "wardGroupFilter",
 "ageFilter",
 "statusFilter",
