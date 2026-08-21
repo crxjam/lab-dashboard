@@ -1401,18 +1401,10 @@ tr.innerHTML = `
 
   <td>
     ${escapeHTML(row.tatStartDisplay)}
-    <br>
-    <span class="small-text">TAT from In Lab Date</span>
-    <br>
-    <span class="small-text">Target: ${escapeHTML(row.targetTatHours)}${typeof row.targetTatHours === "number" ? " h" : ""}</span>
   </td>
 
   <td>
     <strong>${escapeHTML(row.referralStatus || "On OTL")}</strong>
-    <br>
-    <span class="small-text">${escapeHTML(row.storagePositions || "No storage position listed")}</span>
-    <br>
-    <span class="small-text">Review: ${escapeHTML(row.reviewFrequency)}</span>
   </td>
 
   <td>
