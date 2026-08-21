@@ -71,6 +71,229 @@ reviewFrequency: "Twice daily"
 }
 ];
 
+const TEST_GROUPS = {
+
+  "Urgent Wards & Urgent Tests": new Set([
+    "GASES",
+    "HCO3",
+    "LACT",
+    "PYR",
+    "BHB",
+    "AMM",
+    "OSMO",
+    "OSMOG",
+    "LIPASE",
+    "NTPBNP",
+    "TROPTHS",
+    "ACETA",
+    "LI",
+    "PHIND",
+    "UOSMO",
+    "CSFOSM",
+    "CCL",
+    "CGLU",
+    "CPRO",
+    "CLD",
+    "CLACT",
+    "CALB",
+    "CIGG",
+    "CIGGI",
+    "CADA",
+    "CHCG",
+    "CAFP",
+    "CCEA",
+    "FLLACT",
+    "FLCEA",
+    "SACORT",
+    "ACAC",
+    "CDUM1"
+  ]),
+
+  "Serology": new Set([
+    "HAM",
+    "HATA",
+    "HBSAB",
+    "HBCTA",
+    "HBCM",
+    "HCAB",
+    "CMVG",
+    "RUBG"
+  ]),
+
+  "Other": new Set([
+    "APOA",
+    "APOB",
+    "LIPOA",
+    "A1AT",
+    "ACTH",
+    "DHEAS",
+    "GH",
+    "IGF1",
+    "CRT",
+    "COHB",
+    "NA",
+    "K",
+    "CL",
+    "UREA",
+    "GLUR",
+    "GLUF",
+    "GL30",
+    "GL60",
+    "GL90",
+    "GL120",
+    "GL180",
+    "ICA",
+    "HBA1C",
+    "COSM",
+    "CA",
+    "MG",
+    "PO4",
+    "UA",
+    "TP",
+    "ALB",
+    "TBIL",
+    "CBIL",
+    "ALT",
+    "AST",
+    "ALP",
+    "GGT",
+    "LD",
+    "NTBIL",
+    "CPK",
+    "LIPIDS",
+    "CHOL",
+    "TG",
+    "HDL",
+    "CRP",
+    "HAPTO",
+    "C3",
+    "C4",
+    "PCTS",
+    "RF",
+    "IGG",
+    "IGA",
+    "IGM",
+    "FE",
+    "TRF",
+    "FERR",
+    "VB12",
+    "SFOL",
+    "UREAPD",
+    "CREAPD",
+    "GLUPD",
+    "BHCG",
+    "AFP",
+    "PSA",
+    "FPSA",
+    "CEA",
+    "CA125",
+    "CA199",
+    "TSH",
+    "FT4",
+    "FT3",
+    "NTSH",
+    "NFT4",
+    "CORT",
+    "FSH",
+    "LH",
+    "E2",
+    "PROG",
+    "TESTO",
+    "SHBG",
+    "INS",
+    "QUICKI",
+    "CPEPT",
+    "PROL",
+    "PTH",
+    "FAI",
+    "AMH",
+    "PHIND",
+    "PNIND",
+    "PEIND",
+    "SIND",
+    "UNA",
+    "UK",
+    "UCL",
+    "UUREA",
+    "UCREA",
+    "CLEAR",
+    "UCA",
+    "UMG",
+    "UPO4",
+    "UUA",
+    "UPRO",
+    "UALB",
+    "FENA",
+    "FEPO4",
+    "TRP",
+    "UAB",
+    "DFALB",
+    "DFUR24H",
+    "DFCR24H",
+    "DFUR4H",
+    "DFCR4H",
+    "FLNA",
+    "FLK",
+    "FLCL",
+    "FLUREA",
+    "FLCREA",
+    "DIAL",
+    "CRER",
+    "FLGL",
+    "FLCA",
+    "FLMG",
+    "FLPO4",
+    "FLUA",
+    "FLPRO",
+    "FLALB",
+    "FLBIL",
+    "FLLD",
+    "FLCHOL",
+    "FLTG",
+    "FLLIP",
+    "FLEVA",
+    "FLADA",
+    "GLSA",
+    "GLSB",
+    "GLSC",
+    "GLSD",
+    "GLSE",
+    "TGA",
+    "ATGA",
+    "ATPOA",
+    "CDUM2",
+    "TPAB",
+    "HIVCOS",
+    "HBSAG",
+    "UAMPH",
+    "UBENZ",
+    "UCOC",
+    "UOPI",
+    "UTHC",
+    "UMETHQ",
+    "UDSI"
+  ])
+};
+
+
+const URGENT_LOCATIONS = new Set([
+  "91G026 EC--",
+  "91G026 TC--",
+  "91G026 C14-",
+  "91G026 C24-",
+  "91G026 C26-",
+  "91G026 C27-",
+  "91G026 D12-",
+  "91G026 D13-",
+  "91G026 D22-",
+  "91G026 F4--",
+  "91G026 G42U",
+  "91G026 K41-",
+  "91G026 K41U",
+  "91F002 CAS-",
+  "91V009 EC--"
+]);
+
 const COLUMN_ALIASES = {
 visitNumber: ["Visit Number", "Episode Number", "Episode", "Lab Number", "Accession Number"],
 patientName: ["Patient Name", "Patient"],
@@ -406,16 +629,28 @@ text: `${formatTat(Math.abs(diff))} outside TAT`
 };
 }
 
-function makeSampleKey(visitNumber, test, registrationDate) {
-const datePart = registrationDate
-? registrationDate.toISOString().slice(0, 10)
-: "";
+function makeSampleKey(
+  visitNumber,
+  episodeGroup,
+  groupTests,
+  referenceDate
+) {
 
-return [
-String(visitNumber || "").trim().toUpperCase(),
-String(test || "").trim().toUpperCase(),
-datePart
-].join("||");
+  const datePart = referenceDate
+    ? referenceDate.toISOString().slice(0, 10)
+    : "";
+
+  const normalisedTests = [...groupTests]
+    .map(t => String(t).trim().toUpperCase())
+    .sort()
+    .join(",");
+
+  return [
+    String(visitNumber || "").trim().toUpperCase(),
+    String(episodeGroup || "").trim().toUpperCase(),
+    normalisedTests,
+    datePart
+  ].join("||");
 }
 
 function getLocalSavedComments() {
@@ -574,47 +809,105 @@ const otlRule = classifyOTL(
 
 const tatStatus = getTatStatus(currentTatHours, otlRule.tatHours);
 
-const sampleKey = makeSampleKey(
-  visitNumber,
+const episodeGroups = getEpisodeGroups(
   test,
-  registrationDate || collectionDate || inLabDate
+  location
 );
 
-const saved = comments[sampleKey] || {};
+episodeGroups.forEach(groupInfo => {
 
-prepared.push({
-  sampleKey,
-  visitNumber: String(visitNumber || "").trim(),
-  patientName: String(patientName || "").trim(),
-  hospital: String(hospital || "").trim(),
-  location: String(location || "").trim(),
-  ward,
-  test: String(test || "").trim(),
-  specimenType: String(specimenType || "").trim(),
-  collectionDate,
-  registrationDate,
-  inLabDate,
-  tatStart,
-  arRefFlag,
-  tatStartDisplay: formatDateTime24(tatStart),
-  currentTatHours,
-  tatCategory: assignTatCategory(currentTatHours),
-  otlCategory: otlRule.category,
-  reviewFrequency: otlRule.reviewFrequency,
-  freezerCheck: otlRule.freezerCheck || false,
-  targetTatHours: otlRule.tatHours == null ? "Freezer check" : otlRule.tatHours,
-  tatLabel: tatStatus.label,
-  tatText: tatStatus.text,
-  outsideTat: tatStatus.outsideTat,
-  storagePositions: String(storagePositions || "").trim(),
-  referralStatus: String(referralStatus || "").trim(),
-  alternativeReference: String(alternativeReference || "").trim(),
-  internalReference: String(internalReference || "").trim(),
-  sourceFile,
-  techStatus: saved.techStatus || "Not located",
-  comment: saved.comment || "",
-  commentUpdatedAt: saved.updatedAt || ""
-});
+  const episodeGroup = groupInfo.group;
+
+  const groupTests = groupInfo.tests;
+
+  const groupTestDisplay = groupTests
+    .map(t => `-${t}`)
+    .join(", ");
+
+
+  const sampleKey = makeSampleKey(
+    visitNumber,
+    episodeGroup,
+    groupTests,
+    inLabDate || registrationDate || collectionDate
+  );
+
+
+  const saved = comments[sampleKey] || {};
+
+
+  prepared.push({
+    sampleKey,
+
+    visitNumber: String(visitNumber || "").trim(),
+
+    patientName: String(patientName || "").trim(),
+
+    hospital: String(hospital || "").trim(),
+
+    location: String(location || "").trim(),
+
+    ward,
+
+    test: groupTestDisplay,
+
+    originalTest: String(test || "").trim(),
+
+    groupTests,
+
+    episodeGroup,
+
+    specimenType: String(specimenType || "").trim(),
+
+    collectionDate,
+
+    registrationDate,
+
+    inLabDate,
+
+    tatStart,
+
+    arFlag,
+
+    tatStartDisplay: formatDateTime24(tatStart),
+
+    currentTatHours,
+
+    tatCategory: assignTatCategory(currentTatHours),
+
+    otlCategory: otlRule.category,
+
+    reviewFrequency: otlRule.reviewFrequency,
+
+    freezerCheck: otlRule.freezerCheck || false,
+
+    targetTatHours:
+      otlRule.tatHours == null
+        ? "Freezer check"
+        : otlRule.tatHours,
+
+    tatLabel: tatStatus.label,
+
+    tatText: tatStatus.text,
+
+    outsideTat: tatStatus.outsideTat,
+
+    storagePositions: String(storagePositions || "").trim(),
+
+    referralStatus: String(referralStatus || "").trim(),
+
+    alternativeReference: String(alternativeReference || "").trim(),
+
+    internalReference: String(internalReference || "").trim(),
+
+    sourceFile,
+
+    techStatus: saved.techStatus || "Not located",
+
+    comment: saved.comment || "",
+
+    commentUpdatedAt: saved.updatedAt || ""
+  });
 
 });
 
@@ -696,10 +989,110 @@ renderDashboard();
 }
 
 function splitTests(testString) {
-return String(testString || "")
-.split(/[,\n;]+/)
-.map(t => t.trim().replace(/^-/, "").trim())
-.filter(Boolean);
+  return String(testString || "")
+    .split(/[,\n;]+/)
+    .map(t =>
+      t
+        .trim()
+        .replace(/^-+/, "")
+        .trim()
+        .toUpperCase()
+    )
+    .filter(Boolean);
+}
+
+function getEpisodeGroups(testString, location) {
+
+  const tests = splitTests(testString);
+
+  const loc = String(location || "")
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, " ");
+
+  const groups = [];
+
+
+  for (const [groupName, testSet] of Object.entries(TEST_GROUPS)) {
+
+    const matchingTests = tests.filter(test =>
+      testSet.has(test)
+    );
+
+    if (matchingTests.length) {
+      groups.push({
+        group: groupName,
+        tests: matchingTests
+      });
+    }
+  }
+
+
+  // If the LOCATION itself is urgent,
+  // create an additional Urgent representation containing all tests.
+  if (URGENT_LOCATIONS.has(loc)) {
+
+    const existingUrgent = groups.find(
+      g => g.group === "Urgent Wards & Urgent Tests"
+    );
+
+    if (existingUrgent) {
+
+      existingUrgent.tests = [
+        ...new Set([
+          ...existingUrgent.tests,
+          ...tests
+        ])
+      ];
+
+    } else {
+
+      groups.push({
+        group: "Urgent Wards & Urgent Tests",
+        tests: [...tests]
+      });
+
+    }
+  }
+
+
+  // Anything not found in the workbook mappings
+  // should not silently disappear.
+  const classifiedTests = new Set(
+    groups.flatMap(g => g.tests)
+  );
+
+  const unclassified = tests.filter(
+    test => !classifiedTests.has(test)
+  );
+
+  if (unclassified.length) {
+
+    const otherGroup = groups.find(
+      g => g.group === "Other"
+    );
+
+    if (otherGroup) {
+
+      otherGroup.tests = [
+        ...new Set([
+          ...otherGroup.tests,
+          ...unclassified
+        ])
+      ];
+
+    } else {
+
+      groups.push({
+        group: "Other",
+        tests: unclassified
+      });
+
+    }
+  }
+
+
+  return groups;
 }
 
 function testItemCounts(rows) {
