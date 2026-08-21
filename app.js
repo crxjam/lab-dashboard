@@ -1590,7 +1590,7 @@ visitNumber: r.visitNumber,
 test: r.test,
 ward: r.ward,
 location: r.location,
-otlCategory: r.otlCategory,
+episodeGroup: r.episodeGroup,
 currentTatHours: Number(r.currentTatHours.toFixed(2)),
 tatLabel: r.tatLabel,
 techStatus: r.techStatus
@@ -1619,7 +1619,7 @@ const cleanName = exporterName.trim();
 const exportRows = currentRows.map(r => ({
 "Exported By": cleanName,
 "Export Date & Time": formatDateTime24(new Date()),
-"OTL Category": r.otlCategory,
+"Group": r.episodeGroup,
 "Visit Number": r.visitNumber,
 "Patient Name": r.patientName,
 "Ward": r.ward,
@@ -1659,7 +1659,7 @@ workbook,
 
 function toCSV(rows) {
 const headers = [
-"otl_category",
+"group",
 "current_tat_hours",
 "tat_target",
 "tat_status",
@@ -1684,7 +1684,7 @@ const lines = [headers.join(",")];
 
 rows.forEach(r => {
 const values = [
-r.otlCategory,
+r.episodeGroup,
 r.currentTatHours.toFixed(2),
 r.targetTatHours,
 r.tatLabel,
