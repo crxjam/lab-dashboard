@@ -790,7 +790,7 @@ const arFlag =
   inLabDate > registrationDate;
 
 const arRefFlag = arFlag
-  ? String(episode || "").trim().toUpperCase().startsWith("SA")
+  ? String(visitNumber || "").trim().toUpperCase().startsWith("SA")
     ? "AR"
     : "REF"
   : "";
@@ -868,7 +868,9 @@ episodeGroups.forEach(groupInfo => {
     tatStart,
 
     arFlag,
-
+    
+    arRefFlag,
+    
     tatStartDisplay: formatDateTime24(tatStart),
 
     currentTatHours,
@@ -908,12 +910,16 @@ episodeGroups.forEach(groupInfo => {
 
     commentUpdatedAt: saved.updatedAt || ""
   });
+  });
 
+});
+
+// CLOSE rows.forEach
 });
 
 // Load comments shared across all PCs
 const sharedComments = await getSharedComments(
-prepared.map(r => r.sampleKey)
+  prepared.map(r => r.sampleKey)
 );
 
 prepared.forEach(row => {
