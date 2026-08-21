@@ -1128,7 +1128,7 @@ return counts;
 }
 
 function updateCharts(rows) {
-const sectionCounts = groupCount(rows, "otlCategory");
+const sectionCounts = groupCount(rows, "episodeGroup");
 
 const tatCounts = {};
 TAT_CATEGORIES.forEach(b => {
