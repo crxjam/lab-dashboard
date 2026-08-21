@@ -5,6 +5,8 @@ let tatChart = null;
 let wardPieChart = null;
 let testPieChart = null;
 
+const OTL_API_URL = "https://otl-dashboard-api.crxjam002.workers.dev";
+
 const STATUS_OPTIONS = [
 "Not located",
 "Located in lab",
@@ -416,7 +418,7 @@ datePart
 ].join("||");
 }
 
-function getSavedComments() {
+function getLocalSavedComments() {
 try {
 return JSON.parse(localStorage.getItem("otlComments") || "{}");
 } catch {
@@ -424,14 +426,106 @@ return {};
 }
 }
 
-function saveComment(sampleKey, payload) {
-const comments = getSavedComments();
+function saveLocalComment(sampleKey, payload) {
+const comments = getLocalSavedComments();
 comments[sampleKey] = payload;
 localStorage.setItem("otlComments", JSON.stringify(comments));
 }
 
+async function hashSampleKey(value) {
+const data = new TextEncoder().encode(String(value));
+const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+
+return Array.from(new Uint8Array(hashBuffer))
+.map(b => b.toString(16).padStart(2, "0"))
+.join("");
+}
+
+async function getSharedComments(sampleKeys) {
+const uniqueKeys = [...new Set(sampleKeys.filter(Boolean))];
+
+if (!uniqueKeys.length) return {};
+
+try {
+const rawToHash = new Map();
+
+for (const key of uniqueKeys) {
+rawToHash.set(key, await hashSampleKey(key));
+}
+
+const hashes = [...rawToHash.values()];
+const commentsByHash = {};
+
+for (let i = 0; i < hashes.length; i += 500) {
+const batch = hashes.slice(i, i + 500);
+
+const response = await fetch(
+`${OTL_API_URL}/comments?keys=${encodeURIComponent(batch.join(","))}`
+);
+
+if (!response.ok) {
+throw new Error(`Could not load shared comments: ${response.status}`);
+}
+
+const data = await response.json();
+
+Object.assign(
+commentsByHash,
+data.comments || {}
+);
+}
+
+const commentsByOriginalKey = {};
+
+for (const [originalKey, hashedKey] of rawToHash.entries()) {
+if (commentsByHash[hashedKey]) {
+commentsByOriginalKey[originalKey] = commentsByHash[hashedKey];
+}
+}
+
+return commentsByOriginalKey;
+
+} catch (error) {
+console.error("Could not load shared OTL comments:", error);
+return {};
+}
+}
+
+async function saveComment(sampleKey, payload) {
+
+// Keep localStorage as a fallback
+saveLocalComment(sampleKey, payload);
+
+try {
+const hashedKey = await hashSampleKey(sampleKey);
+
+const response = await fetch(`${OTL_API_URL}/comments`, {
+method: "POST",
+headers: {
+"Content-Type": "application/json"
+},
+body: JSON.stringify({
+sampleKey: hashedKey,
+techStatus: payload.techStatus || "",
+comment: payload.comment || "",
+updatedBy: payload.updatedBy || ""
+})
+});
+
+if (!response.ok) {
+throw new Error(`Could not save shared comment: ${response.status}`);
+}
+
+return await response.json();
+
+} catch (error) {
+console.error("Could not save comment to shared database:", error);
+return null;
+}
+}
+
 async function prepareRows(rows, sourceFile) {
-const comments = getSavedComments();
+const comments = getLocalSavedComments();
 const prepared = [];
 
 rows.forEach(row => {
@@ -516,6 +610,21 @@ prepared.push({
   commentUpdatedAt: saved.updatedAt || ""
 });
 
+});
+
+// Load comments shared across all PCs
+const sharedComments = await getSharedComments(
+prepared.map(r => r.sampleKey)
+);
+
+prepared.forEach(row => {
+const shared = sharedComments[row.sampleKey];
+
+if (shared) {
+row.techStatus = shared.techStatus || row.techStatus;
+row.comment = shared.comment ?? row.comment;
+row.commentUpdatedAt = shared.updatedAt || row.commentUpdatedAt;
+}
 });
 
 return prepared;
