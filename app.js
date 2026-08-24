@@ -1722,6 +1722,18 @@ URL.revokeObjectURL(url);
 document.getElementById("otlFiles").addEventListener("change", async event => {
 const files = [...event.target.files];
 
+const isVictoriaPetersenFile = files.some(file =>
+  file.name.toLowerCase().includes("victoria.petersen")
+);
+
+const statusHeading = document.getElementById("statusColumnHeading");
+
+if (statusHeading) {
+  statusHeading.textContent = isVictoriaPetersenFile
+    ? "Sample Status"
+    : "Tech Status";
+}
+  
 if (!files.length) return;
 
 const all = [];
