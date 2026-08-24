@@ -1733,7 +1733,15 @@ if (statusHeading) {
     ? "Sample Status"
     : "Tech Status";
 }
-  
+
+const chartsSection = document.getElementById("chartsSection");
+
+if (chartsSection) {
+  chartsSection.style.display = isVictoriaPetersenFile
+    ? "none"
+    : "block";
+}
+
 if (!files.length) return;
 
 const all = [];
