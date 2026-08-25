@@ -1395,6 +1395,8 @@ tr.innerHTML = `
 
   <td>
     <strong>${escapeHTML(row.referralStatus || "On OTL")}</strong>
+    <br>
+    <span class="small-text">${escapeHTML(row.storagePositions || "")}</span>
   </td>
 
   <td>
