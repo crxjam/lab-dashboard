@@ -1277,16 +1277,6 @@ const cells = [
     rows: g.filter(r => r.tatCategory === b),
     clickable: true
   })),
-  {
-    label: g.filter(r => ["Located in lab", "With section", "Resolved", "Sample in fridge", "Sample in freezer"].includes(r.techStatus)).length,
-    rows: g.filter(r => ["Located in lab", "With section", "Resolved", "Sample in fridge", "Sample in freezer"].includes(r.techStatus)),
-    clickable: true
-  },
-  {
-    label: g.filter(r => r.techStatus === "Issue / follow-up").length,
-    rows: g.filter(r => r.techStatus === "Issue / follow-up"),
-    clickable: true
-  }
 ];
 
 cells.forEach(cell => {
