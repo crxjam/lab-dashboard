@@ -1312,18 +1312,16 @@ tbody.appendChild(tr);
 }
 
 function tatBadge(row) {
-let cls = "";
+  let cls = "";
 
-if (row.outsideTat) cls = "old";
-else if (row.tatLabel === "Near breach") cls = "warn";
+  if (row.outsideTat) cls = "old";
+  else if (row.tatLabel === "Near breach") cls = "warn";
 
-return `
+  return `
     <span class="age-badge ${cls}">
       ${formatTat(row.currentTatHours)}
-      <br>
-      <small>${escapeHTML(row.tatText)}</small>
     </span>
-`;
+  `;
 }
 
 function renderTable(rows) {
