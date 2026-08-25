@@ -1346,9 +1346,6 @@ if (row.outsideTat) {
   tr.classList.add("tat-ok");
 }
 
-const statusOptions = STATUS_OPTIONS.map(s =>
-  `<option value="${escapeHTML(s)}" ${s === row.techStatus ? "selected" : ""}>${escapeHTML(s)}</option>`
-).join("");
 
 tr.innerHTML = `
   <td>${tatBadge(row)}</td>
@@ -1400,9 +1397,14 @@ tr.innerHTML = `
   </td>
 
   <td>
-    <select class="row-status">
-      ${statusOptions}
-    </select>
+    <label class="located-check-label">
+      <input
+        type="checkbox"
+        class="row-located"
+        ${row.techStatus === "Located" ? "checked" : ""}
+      >
+      Located
+    </label>
   </td>
 
   <td>
