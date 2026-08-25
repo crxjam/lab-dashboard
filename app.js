@@ -1401,7 +1401,7 @@ tr.innerHTML = `
       <input
         type="checkbox"
         class="row-located"
-        ${row.techStatus === "Located" ? "checked" : ""}
+        ${["Located", "Located in lab"].includes(row.techStatus) ? "checked" : ""}
       >
       Located
     </label>
@@ -1444,7 +1444,7 @@ if (copyBtn) {
 });
 
 document.querySelectorAll("#otlTable tbody tr").forEach(tr => {
-const statusEl = tr.querySelector(".row-status");
+const locatedEl = tr.querySelector(".row-located");
 const commentEl = tr.querySelector(".row-comment");
 const labelEl = tr.querySelector(".autosave-label");
 
@@ -1458,7 +1458,7 @@ function autoSave() {
   saveTimer = setTimeout(() => {
     saveRowComment(
       tr.dataset.sampleKey,
-      statusEl.value,
+      locatedEl.checked ? "Located" : "Not located",
       commentEl.value,
       false
     );
@@ -1467,7 +1467,7 @@ function autoSave() {
   }, 500);
 }
 
-statusEl.addEventListener("change", autoSave);
+locatedEl.addEventListener("change", autoSave);
 commentEl.addEventListener("input", autoSave);
 
 });
