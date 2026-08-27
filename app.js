@@ -1406,6 +1406,10 @@ tr.innerHTML = `
     <span class="small-text">${escapeHTML(row.location)}</span>
   </td>
 
+  <td class="victoria-only">
+    <strong>${escapeHTML(row.referralRegion || "Unknown")}</strong>
+  </td>
+
   <td>
     <strong>${escapeHTML(row.test)}</strong>
     <br>
