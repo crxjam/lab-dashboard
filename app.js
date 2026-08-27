@@ -1346,7 +1346,7 @@ if (row.outsideTat) {
 
 
 tr.innerHTML = `
-  <td>${tatBadge(row)}</td>
+  <td class="tat-column">${tatBadge(row)}</td>
 
   <td>
     <div class="episode-copy-wrap">
@@ -1716,6 +1716,19 @@ const files = [...event.target.files];
 
 const isVictoriaPetersenFile = files.some(file =>
   file.name.toLowerCase().includes("victoria.petersen")
+);
+
+const tatHeading = document.getElementById("tatColumnHeading");
+
+if (tatHeading) {
+  tatHeading.style.display = isVictoriaPetersenFile
+    ? "none"
+    : "";
+}
+
+document.body.classList.toggle(
+  "victoria-mode",
+  isVictoriaPetersenFile
 );
 
 const statusHeading = document.getElementById("statusColumnHeading");
