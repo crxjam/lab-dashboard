@@ -294,6 +294,13 @@ const URGENT_LOCATIONS = new Set([
   "91V009 EC--"
 ]);
 
+const REFERRAL_REGION_MAP = {
+  SATREFP: "Private",
+  SATBILL: "Billing",
+  SATREFD: "NHLS Western Cape",
+  SATREFW: "NHLS National"
+};
+
 const COLUMN_ALIASES = {
 visitNumber: ["Visit Number", "Episode Number", "Episode", "Lab Number", "Accession Number"],
 patientName: ["Patient Name", "Patient"],
@@ -400,6 +407,23 @@ defval: "",
 raw: false
 });
 
+let referralRegion = "";
+
+for (const row of allRows.slice(0, 20)) {
+  const firstCell = String(row[0] || "").trim().toUpperCase();
+
+  if (!firstCell.includes("TEST GROUP")) continue;
+
+  const matchedCode = Object.keys(REFERRAL_REGION_MAP).find(code =>
+    firstCell.includes(code)
+  );
+
+  if (matchedCode) {
+    referralRegion = REFERRAL_REGION_MAP[matchedCode];
+    break;
+  }
+}
+
 const headerRowIndex = allRows.findIndex(row =>
 row.some(cell => normaliseName(cell) === "visit number")
 );
@@ -417,13 +441,16 @@ const dataRows = allRows
 .filter(row => row.some(cell => String(cell || "").trim() !== ""));
 
 return dataRows.map(row => {
-const obj = {};
-headers.forEach((header, i) => {
-if (header) obj[header] = row[i] ?? "";
+  const obj = {};
+
+  headers.forEach((header, i) => {
+    if (header) obj[header] = row[i] ?? "";
+  });
+
+  obj.__referralRegion = referralRegion;
+
+  return obj;
 });
-return obj;
-});
-}
 
 function parseDate(value) {
 if (!value) return null;
@@ -777,6 +804,7 @@ const referralStatus = getValue(row, COLUMN_ALIASES.referralStatus);
 const alternativeReference = getValue(row, COLUMN_ALIASES.alternativeReference);
 const internalReference = getValue(row, COLUMN_ALIASES.internalReference);
 const hospital = getValue(row, COLUMN_ALIASES.hospital);
+const referralRegion = row.__referralRegion || "";
 
 const tatStart = inLabDate || registrationDate || collectionDate;
 
@@ -848,6 +876,8 @@ episodeGroups.forEach(groupInfo => {
     location: String(location || "").trim(),
 
     ward,
+
+    referralRegion,
 
     test: groupTestDisplay,
 
