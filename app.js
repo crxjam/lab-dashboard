@@ -451,7 +451,8 @@ return dataRows.map(row => {
 
   return obj;
 });
-
+  
+}
 function parseDate(value) {
 if (!value) return null;
 
@@ -1581,7 +1582,7 @@ setMetric("rowsMetric", rows.length.toLocaleString());
 setMetric("episodesMetric", new Set(rows.map(r => r.visitNumber)).size.toLocaleString());
 setMetric("medianAgeMetric", formatTat(median(rows.map(r => r.currentTatHours))));
 setMetric("over24Metric", rows.filter(r => r.currentTatHours >= 24).length.toLocaleString());
-setMetric("locatedMetric", rows.filter(r => ["Located in lab", "With section", "Resolved", "Sample in fridge", "Sample in freezer"].includes(r.techStatus)).length.toLocaleString());
+setMetric("locatedMetric", rows.filter(r => ["Located", "With section", "Resolved", "Sample in fridge", "Sample in freezer"].includes(r.techStatus)).length.toLocaleString());
 setMetric("notLocatedMetric", rows.filter(r => r.techStatus === "Not located").length.toLocaleString());
 setMetric("problemMetric", rows.filter(r => r.techStatus === "Issue / follow-up").length.toLocaleString());
 
