@@ -212,8 +212,7 @@ function getCookie(request, name) {
 
 
 async function getComments(url, env) {
-  const keysParam =
-    url.searchParams.get("keys");
+  const keysParam = url.searchParams.get("keys");
 
   if (!keysParam) {
     return Response.json({
@@ -234,12 +233,12 @@ async function getComments(url, env) {
     });
   }
 
+  // Protect against excessively large browser requests
   if (keys.length > 500) {
     return Response.json(
       {
         ok: false,
-        error:
-          "Maximum 500 sample keys per request."
+        error: "Maximum 500 sample keys per request."
       },
       {
         status: 400
@@ -247,32 +246,48 @@ async function getComments(url, env) {
     );
   }
 
-  const placeholders =
-    keys.map(() => "?").join(",");
-
-  const result = await env.DB
-    .prepare(`
-      SELECT
-        sample_key,
-        tech_status,
-        comment,
-        updated_by,
-        updated_at
-      FROM otl_comments
-      WHERE sample_key IN (${placeholders})
-    `)
-    .bind(...keys)
-    .all();
+  /*
+   * Query D1 in small batches.
+   *
+   * D1/SQLite limits the number of bound SQL variables
+   * that can be used in one statement. An OTL can contain
+   * hundreds of sample keys, so querying all of them in one
+   * IN (...) statement can cause:
+   *
+   * D1_ERROR: too many SQL variables
+   */
+  const BATCH_SIZE = 50;
 
   const comments = {};
 
-  for (const row of result.results || []) {
-    comments[row.sample_key] = {
-      techStatus: row.tech_status,
-      comment: row.comment,
-      updatedBy: row.updated_by,
-      updatedAt: row.updated_at
-    };
+  for (let i = 0; i < keys.length; i += BATCH_SIZE) {
+    const batch = keys.slice(i, i + BATCH_SIZE);
+
+    const placeholders =
+      batch.map(() => "?").join(",");
+
+    const result = await env.DB
+      .prepare(`
+        SELECT
+          sample_key,
+          tech_status,
+          comment,
+          updated_by,
+          updated_at
+        FROM otl_comments
+        WHERE sample_key IN (${placeholders})
+      `)
+      .bind(...batch)
+      .all();
+
+    for (const row of result.results || []) {
+      comments[row.sample_key] = {
+        techStatus: row.tech_status,
+        comment: row.comment,
+        updatedBy: row.updated_by,
+        updatedAt: row.updated_at
+      };
+    }
   }
 
   return Response.json({
@@ -280,8 +295,6 @@ async function getComments(url, env) {
     comments
   });
 }
-
-
 async function saveComment(request, env) {
   const body = await request.json();
 
