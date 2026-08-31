@@ -2,9 +2,18 @@
   "name": "lab-dashboard",
   "compatibility_date": "2026-08-31",
   "main": "worker.js",
+
   "assets": {
     "directory": ".",
     "binding": "ASSETS",
     "run_worker_first": true
-  }
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "otl-dashboard-db",
+      "database_id": "YOUR-DATABASE-ID"
+    }
+  ]
 }
