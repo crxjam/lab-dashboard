@@ -184,7 +184,17 @@ th { background: #f8fafc; position: sticky; top: 0; z-index: 1; }
   display: table-cell;
 }
 
+/* Header layout */
+.topbar {
+  position: relative;
+}
+
+/* Logout button - top right */
 .logout-btn {
+  position: absolute;
+  top: 22px;
+  right: 24px;
+
   display: inline-block;
   padding: 8px 14px;
   background: white;
@@ -193,7 +203,7 @@ th { background: #f8fafc; position: sticky; top: 0; z-index: 1; }
   text-decoration: none;
   font-weight: 700;
   font-size: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.4);
+  border: none;
 }
 
 .logout-btn:hover {
