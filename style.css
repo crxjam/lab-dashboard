@@ -183,3 +183,19 @@ th { background: #f8fafc; position: sticky; top: 0; z-index: 1; }
 .victoria-mode .victoria-only {
   display: table-cell;
 }
+
+.logout-btn {
+  display: inline-block;
+  padding: 8px 14px;
+  background: white;
+  color: #1f2937;
+  border-radius: 8px;
+  text-decoration: none;
+  font-weight: 700;
+  font-size: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+}
+
+.logout-btn:hover {
+  opacity: 0.85;
+}
