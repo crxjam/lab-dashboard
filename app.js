@@ -5,7 +5,7 @@ let tatChart = null;
 let wardPieChart = null;
 let testPieChart = null;
 
-const OTL_API_URL = "https://otl-dashboard-api.crxjam002.workers.dev";
+const OTL_API_URL = "/api";
 
 const STATUS_OPTIONS = [
 "Not located",
